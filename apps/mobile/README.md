@@ -103,6 +103,15 @@ T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.example.t3code \
 vp run ios:release
 ```
 
+A paid Apple Developer team other than T3 Tools can keep the share extension, widgets, and App Group.
+Set your own bundle identifier and team instead of the Personal Team opt-in:
+
+```bash
+T3CODE_IOS_BUNDLE_ID=com.example.t3code \
+T3CODE_IOS_TEAM_ID=ABCDE12345 \
+vp run ios:release
+```
+
 Build and run the local iOS preview app:
 
 ```bash
