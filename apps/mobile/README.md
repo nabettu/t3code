@@ -112,6 +112,10 @@ T3CODE_IOS_TEAM_ID=ABCDE12345 \
 vp run ios:release
 ```
 
+If the share extension fails to sign with an `application-groups` mismatch, the `.sharing` identifier
+was registered without its App Group. Assign the group to that identifier under Certificates,
+Identifiers & Profiles and build again; `xcodebuild -allowProvisioningUpdates` will not do it.
+
 Build and run the local iOS preview app:
 
 ```bash
