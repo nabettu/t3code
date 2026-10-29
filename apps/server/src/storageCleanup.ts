@@ -523,6 +523,25 @@ const make = Effect.gen(function* () {
     return (name?.startsWith("(") ? null : name) !== branch;
   });
 
+  // Removing a detached checkout also drops its HEAD reflog, the only record of commits no ref holds.
+  const detachedWorkUnprotected = Effect.fn("StorageCleanup.detachedWorkUnprotected")(function* (
+    cwd: string,
+  ) {
+    const reflog = yield* git.execute({
+      operation: "StorageCleanup.detachedWork",
+      cwd,
+      args: ["reflog", "show", "--format=%H", "HEAD"],
+      allowNonZeroExit: true,
+    });
+    const unprotected = yield* git.execute({
+      operation: "StorageCleanup.detachedWork",
+      cwd,
+      args: ["rev-list", "--max-count=1", "--stdin", "--not", "--branches", "--remotes", "--tags"],
+      stdin: `HEAD\n${reflog.exitCode === 0 ? reflog.stdout : ""}`,
+    });
+    return unprotected.stdout.trim() !== "";
+  });
+
   const localChangesReason = Effect.fn("StorageCleanup.localChangesReason")(function* (
     cwd: string,
     rules: WorktreeCleanupRules,
@@ -804,24 +823,8 @@ const make = Effect.gen(function* () {
           return keep("not a linked worktree");
         if (yield* branchChanged(worktreePath, thread.branch))
           return keep("repository or branch changed");
-        if (thread.branch === null) {
-          // Removing a detached checkout drops commits no ref holds.
-          const unreachable = yield* git.execute({
-            operation: "StorageCleanup.detachedCommits",
-            cwd: worktreePath,
-            args: [
-              "rev-list",
-              "--max-count=1",
-              "HEAD",
-              "--not",
-              "--branches",
-              "--remotes",
-              "--tags",
-            ],
-          });
-          if (unreachable.stdout.trim() !== "")
-            return keep("detached commits are not on any branch");
-        }
+        if (thread.branch === null && (yield* detachedWorkUnprotected(worktreePath)))
+          return keep("detached commits are not on any branch");
         const changes = yield* localChangesReason(worktreePath, settings);
         if (changes !== null) return keep(changes);
         if (
@@ -1007,6 +1010,8 @@ const make = Effect.gen(function* () {
           head.commitSha
         )
           return keep("commit changed since check");
+        if (thread.branch === null && (yield* detachedWorkUnprotected(worktreePath)))
+          return keep("detached commits are not on any branch");
         const finalChanges = yield* localChangesReason(worktreePath, settings);
         if (finalChanges !== null) return keep(finalChanges);
         const current = resolveWorktreeCleanup(
