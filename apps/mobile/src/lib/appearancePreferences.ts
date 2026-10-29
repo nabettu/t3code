@@ -157,7 +157,7 @@ export function resolveMarkdownFontSizes(baseFontSize: number): ResolvedMarkdown
     h4: Math.max(12, Math.round(15 * scale)),
     h5: Math.max(12, Math.round(15 * scale)),
     h6: Math.max(12, Math.round(15 * scale)),
-    bodyLineHeight: Math.max(18, Math.round(MOBILE_TYPOGRAPHY.body.lineHeight * scale)),
+    bodyLineHeight: Math.max(18, Math.round(m * 1.75)),
     codeBlockFontSize,
     codeBlockLineHeight: codeBlockFontSize + 6,
   };
