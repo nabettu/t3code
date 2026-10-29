@@ -12,7 +12,7 @@ import {
   useThreadGitCenterHeaderItems,
   useThreadGitRightHeaderItems,
 } from "./ThreadGitControls";
-import { threadActionsHeaderItem, threadActionsMenu } from "./thread-actions-menu";
+import { settleThreadHeaderItem } from "./thread-settle-action";
 
 type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
 
@@ -35,7 +35,7 @@ export function useThreadHeaderOptions(props: {
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(props.gitControls);
   const gitRightHeaderItems = useThreadGitRightHeaderItems(props.gitControls);
   const compactRightHeaderItems: NativeHeaderItems = [
-    ...(props.onSettle ? [threadActionsHeaderItem(props.onSettle)] : []),
+    ...(props.onSettle ? [settleThreadHeaderItem(props.onSettle)] : []),
     ...gitRightHeaderItems,
   ];
   const splitLeftHeaderItems: NativeHeaderItems = [
@@ -118,11 +118,7 @@ export function useThreadHeaderOptions(props: {
     sidebar: false,
     fallback:
       !layout.usesSplitView && !props.usesNativeHeaderGlass ? (
-        <ThreadGitControls
-          {...props.gitControls}
-          showActionControls
-          threadMenu={props.onSettle ? threadActionsMenu(props.onSettle) : null}
-        />
+        <ThreadGitControls {...props.gitControls} showActionControls onSettle={props.onSettle} />
       ) : null,
   };
 }

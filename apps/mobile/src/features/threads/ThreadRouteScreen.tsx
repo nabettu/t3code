@@ -564,7 +564,7 @@ function ThreadRouteContent(
 
   const { settleThread } = useThreadListActions();
   const returnToThreadList = useReturnToWorkspaceList("threads");
-  // Confirmed so a stray tap in the header menu cannot close the chat.
+  // Confirmed so a stray tap on the header button cannot close the chat.
   const handleSettleAndClose = () => {
     if (selectedThread === null) return;
     const thread = selectedThread;

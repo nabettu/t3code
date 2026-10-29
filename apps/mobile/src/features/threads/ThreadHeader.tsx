@@ -7,7 +7,7 @@ import type { ThreadInspectorMode } from "./thread-inspector-content-stack";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
 import { useWorkspaceBackNavigation } from "../workspace/useAndroidWorkspaceNavigation";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
-import { threadActionsMenu } from "./thread-actions-menu";
+import { SETTLE_THREAD_ACTION } from "./thread-settle-action";
 
 export function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -50,6 +50,9 @@ export function ThreadHeader(
         onPress: () => onOpenTerminal(null),
       });
     }
+    if (props.onSettle && !layout.usesSplitView) {
+      actions.push({ ...SETTLE_THREAD_ACTION, onPress: props.onSettle });
+    }
     if (layout.usesSplitView) {
       actions.push({
         accessibilityLabel: "Open git controls",
@@ -78,12 +81,8 @@ export function ThreadHeader(
     props.hasWorkspaceRoot,
     props.gitControls.canOpenTerminal,
     layout.usesSplitView,
+    props.onSettle,
   ]);
-  const { onSettle } = props;
-  const menus = useMemo(
-    () => (onSettle && !layout.usesSplitView ? [threadActionsMenu(onSettle)] : undefined),
-    [onSettle, layout.usesSplitView],
-  );
 
   return (
     <>
@@ -109,7 +108,6 @@ export function ThreadHeader(
         }
         onBack={layout.usesSplitView ? undefined : goBack}
         actions={androidHeaderActions}
-        menus={menus}
         hideBottomBorder
         compact={composerKeyboardActive}
       />

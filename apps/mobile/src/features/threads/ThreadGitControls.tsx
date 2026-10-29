@@ -28,6 +28,7 @@ import {
   type TerminalMenuSession,
 } from "../terminal/terminalMenu";
 import { projectScriptMenuLabel } from "@t3tools/shared/projectScripts";
+import { SETTLE_THREAD_ACTION } from "./thread-settle-action";
 
 function truncateMiddle(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
@@ -112,7 +113,7 @@ type ThreadGitControlsProps = ThreadGitMenuProps & {
   readonly terminalSessions: ReadonlyArray<TerminalMenuSession>;
   readonly showActionControls?: boolean;
   readonly showDirectFileControl?: boolean;
-  readonly threadMenu?: AppBarMenu | null;
+  readonly onSettle?: () => void;
   readonly onOpenTerminal: (terminalId?: string | null) => void;
   readonly onOpenNewTerminal: () => void;
   readonly onRunProjectScript: (script: ProjectScript) => Promise<void>;
@@ -513,7 +514,14 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
           separateBackground
         />
       ) : null}
-      {showActionControls && props.threadMenu ? createNativeHeaderMenu(props.threadMenu) : null}
+      {showActionControls && props.onSettle ? (
+        <Toolbar.Button
+          accessibilityLabel={SETTLE_THREAD_ACTION.accessibilityLabel}
+          icon={SETTLE_THREAD_ACTION.icon}
+          onPress={props.onSettle}
+          separateBackground
+        />
+      ) : null}
     </Toolbar>
   );
 }
