@@ -530,7 +530,7 @@ const make = Effect.gen(function* () {
     const reflog = yield* git.execute({
       operation: "StorageCleanup.detachedWork",
       cwd,
-      args: ["reflog", "show", "--format=%H", "HEAD"],
+      args: ["reflog", "show", "--no-show-signature", "--format=%H", "HEAD"],
       allowNonZeroExit: true,
     });
     const unprotected = yield* git.execute({
