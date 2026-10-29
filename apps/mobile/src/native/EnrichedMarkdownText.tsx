@@ -139,6 +139,7 @@ function enrichedStyle(
       markerColor: style.mutedColor,
       // The bullet is centred on the gap's edge and scales with the system text size; the gap must too.
       gapWidth: 12 * fontScale,
+      itemSpacing: 6,
     },
     thematicBreak: { color: style.dividerColor, height: 1, marginTop: 8, marginBottom: 8 },
     table: {
