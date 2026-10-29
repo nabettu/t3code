@@ -1291,6 +1291,49 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
+  it.effect("removes a detached checkout recreated for a branchless thread", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MS);
+        const fixture = yield* cleanupFixture();
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        yield* git.execute({
+          operation: "cleanup-test",
+          cwd: fixture.worktree,
+          args: ["switch", "--detach"],
+        });
+        fixture.setThreads([
+          shell({ branch: null, worktreePath: fixture.worktree, archivedAt: at(-DAY_MS) }),
+        ]);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries).toMatchObject([
+          { threadId: "thread-1", outcome: "removed", reason: "Inactive for 30 days" },
+        ]);
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
+      }),
+    ),
+  );
+  it.effect("keeps a detached checkout whose commits are on no branch", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MS);
+        const fixture = yield* cleanupFixture();
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        const run = (args: ReadonlyArray<string>) =>
+          git.execute({ operation: "cleanup-test", cwd: fixture.worktree, args });
+        yield* run(["switch", "--detach"]);
+        yield* run(["commit", "--allow-empty", "-m", "detached work"]);
+        fixture.setThreads([
+          shell({ branch: null, worktreePath: fixture.worktree, archivedAt: at(-DAY_MS) }),
+        ]);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries).toMatchObject([
+          { outcome: "kept", reason: "Detached commits are not on any branch" },
+        ]);
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
+      }),
+    ),
+  );
   it.live.each(["before-check", "while-measuring"] as const)(
     "keeps a worktree protected by a missing project root (%s)",
     (timing) =>
