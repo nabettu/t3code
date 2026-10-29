@@ -20,12 +20,14 @@ export class WorktreeRecreateError extends Schema.TaggedError<WorktreeRecreateEr
   "WorktreeRecreateError",
   {
     worktreePath: Schema.String,
-    branch: Schema.String,
+    branch: Schema.NullOr(Schema.String),
     cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
-    return `Could not recreate the worktree for branch '${this.branch}' at ${this.worktreePath}.`;
+    return this.branch === null
+      ? `Could not recreate the worktree at ${this.worktreePath}.`
+      : `Could not recreate the worktree for branch '${this.branch}' at ${this.worktreePath}.`;
   }
 }
 
@@ -129,10 +131,15 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
   const recreateMissingWorktree = Effect.fn("restoreMissingWorktree.recreate")(function* (input: {
     readonly cwd: string;
     readonly worktreePath: string;
-    readonly branch: string;
+    readonly branch: string | null;
   }) {
     const { cwd, worktreePath, branch } = input;
     yield* gitWorkflow.pruneWorktrees({ cwd });
+    // A merged thread's branch is gone, so follow-up questions read the project checkout.
+    if (branch === null) {
+      yield* gitWorkflow.createWorktree({ cwd, refName: "HEAD", path: worktreePath });
+      return;
+    }
     const localBranchNames = yield* gitWorkflow.listLocalBranchNames(cwd);
     if (localBranchNames.includes(branch)) {
       yield* gitWorkflow.createWorktree({ cwd, refName: branch, path: worktreePath });
@@ -168,10 +175,11 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
   return Effect.fn("restoreMissingWorktree")(function* (thread: WorktreeThread) {
     const { worktreePath, branch } = thread;
     if (worktreePath === null) return;
-    if (branch === null) return yield* recreateScratchFolder(thread, worktreePath);
+    const managed = yield* isManagedWorktreePath(worktreePath);
+    if (branch === null && !managed) return yield* recreateScratchFolder(thread, worktreePath);
     const exists = yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true));
     const leftover = exists && (yield* isLeftoverFolder(worktreePath));
-    if ((exists && !leftover) || !(yield* isManagedWorktreePath(worktreePath))) return;
+    if ((exists && !leftover) || !managed) return;
     const project = yield* projects.getById(thread.projectId).pipe(
       Effect.map(Option.getOrUndefined),
       Effect.orElseSucceed(() => undefined),
