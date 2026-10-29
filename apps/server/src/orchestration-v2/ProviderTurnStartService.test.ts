@@ -788,7 +788,7 @@ function makeLocalCommandHarness(input: {
 }
 
 effectIt.effect(
-  "recovers the thread branch tip, falls back to the current project branch, and rejects detached HEAD",
+  "recovers the thread branch tip, falls back to the current project branch, and then to a detached HEAD",
   () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -864,24 +864,92 @@ effectIt.effect(
 
         yield* harness.start;
 
-        if (scenario === "detached") {
-          expect(harness.open).not.toHaveBeenCalled();
-          expect(harness.startRootRun).not.toHaveBeenCalled();
-          expect(harness.projection().runs.at(-1)?.status).toBe("failed");
-          expect(harness.projection().turnItems).toMatchObject([
-            { type: "error", failure: { message: expect.stringContaining("no current branch") } },
-          ]);
-          expect(yield* fileSystem.exists(worktreePath)).toBe(false);
-          expect(yield* git(workspaceRoot, ["branch", "--list", "feature/restore"])).toBe("");
-        } else {
-          expect(harness.open).toHaveBeenCalledOnce();
-          expect(harness.startRootRun).toHaveBeenCalledWith(
-            expect.objectContaining({
-              runtimePolicy: expect.objectContaining({ cwd: worktreePath }),
-            }),
-          );
-          expect(harness.projection().runs.at(-1)?.status).toBe("running");
+        expect(harness.open).toHaveBeenCalledOnce();
+        expect(harness.startRootRun).toHaveBeenCalledWith(
+          expect.objectContaining({
+            runtimePolicy: expect.objectContaining({ cwd: worktreePath }),
+          }),
+        );
+        expect(harness.projection().runs.at(-1)?.status).toBe("running");
+      }
+    }).pipe(Effect.scoped, Effect.provide(layerRealGit)),
+);
+
+effectIt.effect(
+  "recovers a pushed thread branch, then starts a detached project from the remote default branch",
+  () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const gitWorkflow = yield* GitWorkflow.GitWorkflowService;
+      const driver = yield* GitVcsDriver.GitVcsDriver;
+      const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-recreate-remote-" });
+      const remoteRoot = path.join(root, "remote.git");
+      const upstreamRoot = path.join(root, "upstream");
+      const workspaceRoot = path.join(root, "project");
+      const worktreesDir = path.join(root, "worktrees");
+      const worktreePath = path.join(worktreesDir, "project", "restore");
+      const git = (cwd: string, args: ReadonlyArray<string>) =>
+        driver
+          .execute({ operation: "test.worktreeRecovery", cwd, args })
+          .pipe(Effect.map((result) => result.stdout.trim()));
+      const commit = (cwd: string, file: string, contents: string) =>
+        Effect.gen(function* () {
+          yield* fileSystem.writeFileString(path.join(cwd, file), contents);
+          yield* git(cwd, ["add", "."]);
+          yield* git(cwd, ["commit", "-m", file]);
+          return yield* git(cwd, ["rev-parse", "HEAD"]);
+        });
+      yield* fileSystem.makeDirectory(upstreamRoot);
+      yield* git(upstreamRoot, ["init", "-b", "main"]);
+      yield* git(upstreamRoot, ["config", "user.name", "Test"]);
+      yield* git(upstreamRoot, ["config", "user.email", "test@example.com"]);
+      const staleTip = yield* commit(upstreamRoot, "base.txt", "base");
+      yield* git(root, ["clone", "--bare", upstreamRoot, remoteRoot]);
+      yield* git(root, ["clone", remoteRoot, workspaceRoot]);
+      yield* git(workspaceRoot, ["config", "user.name", "Test"]);
+      yield* git(workspaceRoot, ["config", "user.email", "test@example.com"]);
+      yield* git(workspaceRoot, ["worktree", "add", "-b", "feature/restore", worktreePath]);
+      const pushedTip = yield* commit(worktreePath, "thread.txt", "pushed thread work");
+      yield* git(worktreePath, ["push", "-u", "origin", "feature/restore"]);
+      yield* git(upstreamRoot, ["remote", "add", "origin", remoteRoot]);
+      yield* git(upstreamRoot, ["pull", "--no-rebase", "origin", "main"]);
+      const remoteTip = yield* commit(upstreamRoot, "remote.txt", "remote default work");
+      yield* git(upstreamRoot, ["push", "origin", "main"]);
+      yield* git(workspaceRoot, ["fetch", "origin"]);
+      yield* git(workspaceRoot, ["switch", "--detach", staleTip]);
+
+      for (const scenario of ["pushed", "default"] as const) {
+        yield* fileSystem.remove(worktreePath, { recursive: true });
+        yield* git(workspaceRoot, ["worktree", "prune"]);
+        yield* git(workspaceRoot, ["branch", "-D", "feature/restore"]);
+        if (scenario === "default") {
+          yield* git(workspaceRoot, ["push", "origin", "--delete", "feature/restore"]);
         }
+        const harness = makeLocalCommandHarness({
+          text: "Continue",
+          workspaceRoot,
+          worktreePath,
+          worktreesDir,
+          fileSystem,
+          gitWorkflow,
+          failReadsAfterRunning: true,
+        });
+
+        yield* harness.start;
+
+        expect(harness.open).toHaveBeenCalledOnce();
+        expect(harness.projection().runs.at(-1)?.status).toBe("running");
+        expect(yield* git(worktreePath, ["branch", "--show-current"])).toBe("feature/restore");
+        expect(yield* git(worktreePath, ["rev-parse", "HEAD"])).toBe(
+          scenario === "pushed" ? pushedTip : remoteTip,
+        );
+        // A recreated branch must never push to the default branch.
+        expect(
+          yield* git(worktreePath, ["rev-parse", "--abbrev-ref", "@{upstream}"]).pipe(
+            Effect.orElseSucceed(() => null),
+          ),
+        ).toBe(scenario === "pushed" ? "origin/feature/restore" : null);
       }
     }).pipe(Effect.scoped, Effect.provide(layerRealGit)),
 );

@@ -82,15 +82,6 @@ class WorktreeRecreateError extends Schema.TaggedError<WorktreeRecreateError>()(
   }
 }
 
-class WorktreeRecreateNoBaseError extends Schema.TaggedError<WorktreeRecreateNoBaseError>()(
-  "WorktreeRecreateNoBaseError",
-  { worktreePath: Schema.String, branch: Schema.String },
-) {
-  override get message(): string {
-    return `Could not recreate branch '${this.branch}' at ${this.worktreePath}: the project workspace has no current branch to start it from (detached HEAD?).`;
-  }
-}
-
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
 
 /**
@@ -170,17 +161,39 @@ export const layer: Layer.Layer<
           yield* gitWorkflow.createWorktree({ cwd, refName: branch, path: worktreePath });
           return;
         }
+        // Storage cleanup deletes the local branch, but a pushed copy still holds the thread's work.
+        const pushedRef = `refs/remotes/origin/${branch}`;
+        if (yield* gitWorkflow.hasCommit({ cwd, refName: pushedRef })) {
+          yield* gitWorkflow.createWorktree({
+            cwd,
+            refName: pushedRef,
+            newRefName: branch,
+            path: worktreePath,
+          });
+          return;
+        }
         // Recovery can follow an external checkout, before the status cache expires.
         yield* gitWorkflow.invalidateLocalStatus(cwd);
-        const { refName: baseRef } = yield* gitWorkflow.localStatus({ cwd });
-        if (baseRef === null) {
-          return yield* new WorktreeRecreateNoBaseError({ worktreePath, branch });
+        const { refName: currentRef } = yield* gitWorkflow.localStatus({ cwd });
+        if (currentRef !== null) {
+          yield* gitWorkflow.createWorktree({
+            cwd,
+            refName: `refs/heads/${currentRef}`,
+            newRefName: branch,
+            baseRefName: `refs/heads/${currentRef}`,
+            path: worktreePath,
+          });
+          return;
         }
+        // A detached project checkout is often a stale deploy pin, so prefer the remote default branch.
+        const remoteDefaultRef = "refs/remotes/origin/HEAD";
+        const hasRemoteDefault = yield* gitWorkflow.hasCommit({ cwd, refName: remoteDefaultRef });
         yield* gitWorkflow.createWorktree({
           cwd,
-          refName: `refs/heads/${baseRef}`,
+          // Peeled so the thread branch never tracks, and pushes to, the default branch.
+          refName: hasRemoteDefault ? `${remoteDefaultRef}^{commit}` : "HEAD",
           newRefName: branch,
-          baseRefName: `refs/heads/${baseRef}`,
+          ...(hasRemoteDefault ? { baseRefName: remoteDefaultRef } : {}),
           path: worktreePath,
         });
       },
@@ -594,10 +607,8 @@ export const layer: Layer.Layer<
                 worktreePath,
                 branch,
               }).pipe(
-                Effect.mapError((cause) =>
-                  cause._tag === "WorktreeRecreateNoBaseError"
-                    ? cause
-                    : new WorktreeRecreateError({ worktreePath, branch, cause }),
+                Effect.mapError(
+                  (cause) => new WorktreeRecreateError({ worktreePath, branch, cause }),
                 ),
               ),
             );
