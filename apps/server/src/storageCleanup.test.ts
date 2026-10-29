@@ -1739,6 +1739,52 @@ describe("storage cleanup reports and local file policies", () => {
       }),
     ),
   );
+  it.effect("keeps a detached checkout whose earlier commits only its reflog holds", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MS);
+        const fixture = yield* cleanupFixture();
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        const run = (args: ReadonlyArray<string>) =>
+          git.execute({ operation: "cleanup-test", cwd: fixture.worktree, args });
+        yield* run(["switch", "--detach"]);
+        yield* run(["commit", "--allow-empty", "-m", "detached work"]);
+        yield* run(["switch", "--detach", "HEAD~1"]);
+        fixture.setThreads([
+          shell({ branch: null, worktreePath: fixture.worktree, archivedAt: at(-DAY_MS) }),
+        ]);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries).toMatchObject([
+          { outcome: "kept", reason: "Detached commits are not on any branch" },
+        ]);
+      }),
+    ),
+  );
+  it.live("keeps a detached checkout whose protecting branch is deleted during measurement", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* pausedMeasurementFixture();
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        const run = (args: ReadonlyArray<string>) =>
+          git.execute({ operation: "cleanup-test", cwd: fixture.worktree, args });
+        yield* run(["switch", "--detach"]);
+        yield* run(["commit", "--allow-empty", "-m", "detached work"]);
+        yield* run(["branch", "keep-work"]);
+        fixture.setThreads([
+          shell({ branch: null, worktreePath: fixture.worktree, archivedAt: at(-DAY_MS) }),
+        ]);
+        const cleanup = yield* fixture.service.runNow.pipe(Effect.forkChild);
+        yield* Deferred.await(fixture.measuring);
+        yield* run(["branch", "-D", "keep-work"]);
+        yield* Deferred.succeed(fixture.resume, undefined);
+        const report = yield* Fiber.join(cleanup);
+        expect(report.entries).toMatchObject([
+          { outcome: "kept", reason: "Detached commits are not on any branch" },
+        ]);
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
+      }),
+    ),
+  );
   it.live.each(["before-check", "while-measuring"] as const)(
     "keeps a worktree protected by a missing project root (%s)",
     (timing) =>
