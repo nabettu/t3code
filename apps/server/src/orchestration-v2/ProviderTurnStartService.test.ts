@@ -264,6 +264,7 @@ it.each([
 function makeLocalCommandHarness(input: {
   readonly text: string;
   readonly worktreePath?: string;
+  readonly branch?: string | null;
   readonly worktreesDir?: string;
   readonly workspaceRoot?: string;
   readonly gitWorkflow?: GitWorkflow.GitWorkflowService["Service"];
@@ -352,7 +353,12 @@ function makeLocalCommandHarness(input: {
       id: threadId,
       activeProviderThreadId: providerThreadId,
       projectId: ProjectId.make("project-native-account-command"),
-      branch: input.worktreePath === undefined ? null : "feature/restore",
+      branch:
+        input.worktreePath === undefined
+          ? null
+          : input.branch === undefined
+            ? "feature/restore"
+            : input.branch,
       worktreePath: input.worktreePath ?? null,
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
@@ -952,6 +958,50 @@ effectIt.effect(
         ).toBe(scenario === "pushed" ? "origin/feature/restore" : null);
       }
     }).pipe(Effect.scoped, Effect.provide(layerRealGit)),
+);
+
+effectIt.effect("recreates a branchless thread's worktree detached at the project checkout", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const gitWorkflow = yield* GitWorkflow.GitWorkflowService;
+    const driver = yield* GitVcsDriver.GitVcsDriver;
+    const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-recreate-branchless-" });
+    const workspaceRoot = path.join(root, "project");
+    const worktreesDir = path.join(root, "worktrees");
+    const worktreePath = path.join(worktreesDir, "project", "merged");
+    yield* fileSystem.makeDirectory(workspaceRoot);
+    const git = (cwd: string, args: ReadonlyArray<string>) =>
+      driver
+        .execute({ operation: "test.worktreeRecovery", cwd, args })
+        .pipe(Effect.map((result) => result.stdout.trim()));
+    yield* git(workspaceRoot, ["init", "-b", "main"]);
+    yield* git(workspaceRoot, ["config", "user.name", "Test"]);
+    yield* git(workspaceRoot, ["config", "user.email", "test@example.com"]);
+    yield* fileSystem.writeFileString(path.join(workspaceRoot, "merged.txt"), "merged work");
+    yield* git(workspaceRoot, ["add", "."]);
+    yield* git(workspaceRoot, ["commit", "-m", "merged"]);
+    const projectTip = yield* git(workspaceRoot, ["rev-parse", "HEAD"]);
+
+    const harness = makeLocalCommandHarness({
+      text: "Was this already merged?",
+      workspaceRoot,
+      worktreePath,
+      branch: null,
+      worktreesDir,
+      fileSystem,
+      gitWorkflow,
+      failReadsAfterRunning: true,
+    });
+
+    yield* harness.start;
+
+    expect(harness.open).toHaveBeenCalledOnce();
+    expect(harness.projection().runs.at(-1)?.status).toBe("running");
+    expect(yield* git(worktreePath, ["branch", "--show-current"])).toBe("");
+    expect(yield* git(worktreePath, ["rev-parse", "HEAD"])).toBe(projectTip);
+    expect(yield* git(workspaceRoot, ["branch", "--list"])).toBe("* main");
+  }).pipe(Effect.scoped, Effect.provide(layerRealGit)),
 );
 
 effectIt.effect(
