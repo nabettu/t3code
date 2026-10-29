@@ -102,6 +102,7 @@ import { ThreadHeader } from "./ThreadHeader";
 import { resumeThread } from "./resume-thread";
 import {
   useAndroidWorkspaceBack,
+  useReturnToWorkspaceList,
   useWorkspaceBackNavigation,
 } from "../workspace/useAndroidWorkspaceNavigation";
 import { openSettings } from "../settings/settings-navigation";
@@ -545,7 +546,7 @@ function ThreadRouteContent(
   const gitActionProgress = useGitActionProgress(gitActionProgressTarget);
 
   const { settleThread } = useThreadListActions();
-  const returnToThreadList = useWorkspaceBackNavigation("threads");
+  const returnToThreadList = useReturnToWorkspaceList("threads");
   // Confirmed so a stray tap in the header menu cannot close the chat.
   const handleSettleAndClose = () => {
     if (selectedThread === null) return;
@@ -557,7 +558,8 @@ function ThreadRouteContent(
       confirmText: "OK",
       onConfirm: () => {
         void settleThread(thread).then((settled) => {
-          if (settled) returnToThreadList();
+          // Leaving mid-request means the user already moved on; don't close what they opened next.
+          if (settled && navigation.isFocused()) returnToThreadList();
         });
       },
     });
@@ -999,7 +1001,7 @@ function ThreadRouteContent(
                 onOpenGitInspector={handleOpenGitInspector}
                 onOpenFilesInspector={handleOpenFilesInspector}
                 onReturnToThread={props.onReturnToThread}
-                onSettle={handleSettleAndClose}
+                onSettle={canOperateThread ? handleSettleAndClose : undefined}
               />
             )
           }
