@@ -112,6 +112,7 @@ type ThreadGitControlsProps = ThreadGitMenuProps & {
   readonly terminalSessions: ReadonlyArray<TerminalMenuSession>;
   readonly showActionControls?: boolean;
   readonly showDirectFileControl?: boolean;
+  readonly threadMenu?: AppBarMenu | null;
   readonly onOpenTerminal: (terminalId?: string | null) => void;
   readonly onOpenNewTerminal: () => void;
   readonly onRunProjectScript: (script: ProjectScript) => Promise<void>;
@@ -417,9 +418,10 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
   };
 }
 
+// Phones keep git out of the header; the thread actions menu takes its place.
 export function useThreadGitRightHeaderItems(props: ThreadGitControlsProps): HeaderItems {
   const actionItems = useThreadGitHeaderActionItems(props);
-  return [actionItems.git, actionItems.files, actionItems.terminal] as HeaderItems;
+  return [actionItems.files, actionItems.terminal] as HeaderItems;
 }
 
 export function useThreadGitCenterHeaderItems(props: ThreadGitControlsProps): HeaderItems {
@@ -511,7 +513,7 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
           separateBackground
         />
       ) : null}
-      {showActionControls ? createNativeHeaderMenu(threadGitMenuDefinition(props, model)) : null}
+      {showActionControls && props.threadMenu ? createNativeHeaderMenu(props.threadMenu) : null}
     </Toolbar>
   );
 }
