@@ -20,6 +20,19 @@ function useWorkspaceListNavigation(tab: WorkspaceTab) {
   };
 }
 
+/** Unlike Back, always lands on the list, even when this screen was opened from a link. */
+export function useReturnToWorkspaceList(tab: WorkspaceTab) {
+  const navigation = useNavigation();
+  const dispatch = useWorkspaceTabs()?.dispatch;
+  return () => {
+    if (Platform.OS === "android") {
+      dispatch?.({ type: "select", tab });
+      resetAndroidWorkspace(navigation);
+    } else if (navigation.canGoBack()) navigation.dispatch(StackActions.popToTop());
+    else navigation.dispatch(StackActions.replace("Home"));
+  };
+}
+
 export function useWorkspaceBackNavigation(tab: WorkspaceTab) {
   const navigation = useNavigation();
   const dispatch = useWorkspaceTabs()?.dispatch;
