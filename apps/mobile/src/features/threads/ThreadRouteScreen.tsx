@@ -114,6 +114,7 @@ import {
 } from "./thread-inspector-preview";
 import type { ThreadInspectorTarget } from "./thread-inspector-navigation";
 import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
+import { useThreadListActions } from "../home/useThreadListActions";
 
 function InspectorPaneRoleActivation() {
   useAdaptiveWorkspacePaneRole("inspector");
@@ -560,6 +561,24 @@ function ThreadRouteContent(
   };
   const gitActionProgress = useGitActionProgress(gitActionProgressTarget);
 
+  const { settleThread } = useThreadListActions();
+  const returnToThreadList = useWorkspaceBackNavigation("threads");
+  // Confirmed so a stray tap in the header menu cannot close the chat.
+  const handleSettleAndClose = () => {
+    if (selectedThread === null) return;
+    const thread = selectedThread;
+    Dialog.confirm({
+      title: "Settle this thread?",
+      message: "The chat closes and you return to the thread list.",
+      cancelText: "No",
+      confirmText: "OK",
+      onConfirm: () => {
+        void settleThread(thread).then((settled) => {
+          if (settled) returnToThreadList();
+        });
+      },
+    });
+  };
   const handleOpenGitInspector = () => {
     if (!fileInspector.supported) {
       if (selectedThread === null) {
@@ -991,6 +1010,7 @@ function ThreadRouteContent(
                 onOpenGitInspector={handleOpenGitInspector}
                 onOpenFilesInspector={handleOpenFilesInspector}
                 onReturnToThread={props.onReturnToThread}
+                onSettle={handleSettleAndClose}
               />
             )
           }

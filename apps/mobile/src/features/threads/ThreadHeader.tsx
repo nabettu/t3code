@@ -7,6 +7,7 @@ import type { ThreadInspectorMode } from "./thread-inspector-content-stack";
 import { useThreadHeaderOptions } from "./useThreadHeaderOptions";
 import { useWorkspaceBackNavigation } from "../workspace/useAndroidWorkspaceNavigation";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
+import { threadActionsMenu } from "./thread-actions-menu";
 
 export function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -49,11 +50,13 @@ export function ThreadHeader(
         onPress: () => onOpenTerminal(null),
       });
     }
-    actions.push({
-      accessibilityLabel: "Open git controls",
-      icon: "point.topleft.down.curvedto.point.bottomright.up",
-      onPress: props.onOpenGitInspector,
-    });
+    if (layout.usesSplitView) {
+      actions.push({
+        accessibilityLabel: "Open git controls",
+        icon: "point.topleft.down.curvedto.point.bottomright.up",
+        onPress: props.onOpenGitInspector,
+      });
+    }
     if (onMergeBack) {
       actions.push({
         accessibilityLabel: "Merge back to source",
@@ -74,7 +77,13 @@ export function ThreadHeader(
     props.hasThreadCwd,
     props.hasWorkspaceRoot,
     props.gitControls.canOpenTerminal,
+    layout.usesSplitView,
   ]);
+  const { onSettle } = props;
+  const menus = useMemo(
+    () => (onSettle && !layout.usesSplitView ? [threadActionsMenu(onSettle)] : undefined),
+    [onSettle, layout.usesSplitView],
+  );
 
   return (
     <>
@@ -100,6 +109,7 @@ export function ThreadHeader(
         }
         onBack={layout.usesSplitView ? undefined : goBack}
         actions={androidHeaderActions}
+        menus={menus}
         hideBottomBorder
         compact={composerKeyboardActive}
       />

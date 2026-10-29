@@ -12,6 +12,7 @@ import {
   useThreadGitCenterHeaderItems,
   useThreadGitRightHeaderItems,
 } from "./ThreadGitControls";
+import { threadActionsHeaderItem, threadActionsMenu } from "./thread-actions-menu";
 
 type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
 
@@ -23,6 +24,7 @@ export function useThreadHeaderOptions(props: {
   readonly gitControls: Parameters<typeof ThreadGitControls>[0];
   readonly onReturnToThread?: () => void;
   readonly draft?: boolean;
+  readonly onSettle?: () => void;
 }) {
   const usesNativeWorkspaceColumns = useNativeWorkspaceColumnsSupported();
   const deviceType = useDeviceType();
@@ -31,7 +33,11 @@ export function useThreadHeaderOptions(props: {
   const { layout, startNewTask } = useAdaptiveWorkspaceLayout();
   const sidebarHeaderItem = useWorkspaceSidebarHeaderItem();
   const threadCenterHeaderItems = useThreadGitCenterHeaderItems(props.gitControls);
-  const compactRightHeaderItems = useThreadGitRightHeaderItems(props.gitControls);
+  const gitRightHeaderItems = useThreadGitRightHeaderItems(props.gitControls);
+  const compactRightHeaderItems: NativeHeaderItems = [
+    ...(props.onSettle ? [threadActionsHeaderItem(props.onSettle)] : []),
+    ...gitRightHeaderItems,
+  ];
   const splitLeftHeaderItems: NativeHeaderItems = [
     ...(!usesDuoHeader
       ? [
@@ -112,7 +118,11 @@ export function useThreadHeaderOptions(props: {
     sidebar: false,
     fallback:
       !layout.usesSplitView && !props.usesNativeHeaderGlass ? (
-        <ThreadGitControls {...props.gitControls} showActionControls />
+        <ThreadGitControls
+          {...props.gitControls}
+          showActionControls
+          threadMenu={props.onSettle ? threadActionsMenu(props.onSettle) : null}
+        />
       ) : null,
   };
 }
