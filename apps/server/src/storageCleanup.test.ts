@@ -1475,7 +1475,9 @@ describe("subagent worktree ownership", () => {
             ? "Thread is running or has pending work"
             : shared
               ? "Shared by 2 threads"
-              : scenario === "null-branch" || scenario === "stale-branch"
+              : scenario === "null-branch" ||
+                  scenario === "stale-branch" ||
+                  scenario === "branchless"
                 ? "A subagent thread's branch differs from this worktree's branch"
                 : scenario === "recent-activity"
                   ? "Settled for 2 of 8 days"
@@ -1483,9 +1485,7 @@ describe("subagent worktree ownership", () => {
                     ? "Inactive for 2 of 8 days"
                     : ["recent-grace", "recent-settle", "child-settled-now"].includes(scenario)
                       ? "Settled moments ago"
-                      : scenario === "branchless"
-                        ? "Thread has no branch"
-                        : "Not settled",
+                      : "Not settled",
       });
     }).pipe(Effect.provide(cleanupTestLayer)),
   );
@@ -2757,6 +2757,49 @@ describe("storage cleanup reports and local file policies", () => {
         const report = yield* fixture.service.runNow;
         expect(report.entries).toEqual([]);
         expect(report.counts).toEqual({ removed: 0, kept: 0, failed: 0 });
+      }),
+    ),
+  );
+  it.effect("removes a detached checkout recreated for a branchless thread", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MS);
+        const fixture = yield* cleanupFixture();
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        yield* git.execute({
+          operation: "cleanup-test",
+          cwd: fixture.worktree,
+          args: ["switch", "--detach"],
+        });
+        fixture.setThreads([
+          shell({ branch: null, worktreePath: fixture.worktree, archivedAt: at(-DAY_MS) }),
+        ]);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries).toMatchObject([
+          { threadId: "thread-1", outcome: "removed", reason: "Inactive for 30 days" },
+        ]);
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
+      }),
+    ),
+  );
+  it.effect("keeps a detached checkout whose commits are on no branch", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(NOW_MS);
+        const fixture = yield* cleanupFixture();
+        const git = yield* GitVcsDriver.GitVcsDriver;
+        const run = (args: ReadonlyArray<string>) =>
+          git.execute({ operation: "cleanup-test", cwd: fixture.worktree, args });
+        yield* run(["switch", "--detach"]);
+        yield* run(["commit", "--allow-empty", "-m", "detached work"]);
+        fixture.setThreads([
+          shell({ branch: null, worktreePath: fixture.worktree, archivedAt: at(-DAY_MS) }),
+        ]);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries).toMatchObject([
+          { outcome: "kept", reason: "Detached commits are not on any branch" },
+        ]);
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
       }),
     ),
   );

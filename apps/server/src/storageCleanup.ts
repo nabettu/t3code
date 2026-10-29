@@ -1227,7 +1227,6 @@ const make = Effect.gen(function* () {
         if (project === undefined) return keep("project is unavailable");
         if (!group.every((member) => storageCleanupThreadIdle(member, now, serverSettings)))
           return keep(waitForStop("thread is running or has pending work"));
-        if (thread.branch === null && !scratch) return keep("thread has no branch");
         if (group.some((member) => member.branch !== thread.branch))
           return keep("a subagent thread's branch differs from this worktree's branch");
         if (yield* hasTerminal(worktreePaths)) return keep(waitForStop("open terminal"));
@@ -1431,6 +1430,16 @@ const make = Effect.gen(function* () {
           // A deleted owner cannot follow, so its remaining subagents stay on its branch.
           if (!deleted) yield* followBranch(worktreePath);
           return keep("repository or branch changed");
+        }
+        if (thread.branch === null) {
+          // Removing a detached checkout drops commits no ref holds.
+          const unreachable = yield* git.execute({
+            operation: "StorageCleanup.detachedCommits",
+            cwd: worktreePath,
+            args: ["rev-list", "--max-count=1", "HEAD", "--not", "--branches", "--remotes", "--tags"],
+          });
+          if (unreachable.stdout.trim() !== "")
+            return keep("detached commits are not on any branch");
         }
         const changes = yield* localChangesReason(worktreePath, settings);
         if (changes !== null) return keep(changes);
