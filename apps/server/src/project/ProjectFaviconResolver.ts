@@ -95,6 +95,7 @@ const APP_EXTENSION_TARGET_RE = /(?:clip|extension|tests?|watch|widget)[^/\\]*[/
 const APP_ICON_SHARP_PIXELS = 96;
 
 const ExpoConfig = Schema.Struct({
+  android: Schema.optional(Schema.Struct({ icon: Schema.optional(Schema.String) })),
   icon: Schema.optional(Schema.String),
   ios: Schema.optional(
     Schema.Struct({
@@ -110,12 +111,22 @@ const decodeExpoAppConfig = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Struct({ ...ExpoConfig.fields, expo: Schema.optional(ExpoConfig) })),
 );
 
+// Densities run from the first at least 96px wide, matching APP_ICON_SHARP_PIXELS.
+// Adaptive icons are XML plus separate layers, so only flattened launcher images qualify.
+const ANDROID_ICON_CANDIDATES = ["android/app", "app"].flatMap((module) =>
+  ["xhdpi", "xxhdpi", "xxxhdpi", "hdpi", "mdpi"].flatMap((density) =>
+    ["png", "webp"].map(
+      (extension) => `${module}/src/main/res/mipmap-${density}/ic_launcher.${extension}`,
+    ),
+  ),
+);
+
 const decodeAppIconSetContents = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
       images: Schema.Array(
         Schema.Struct({
-          appearances: Schema.optional(Schema.Unknown),
+          appearances: Schema.optional(Schema.Array(Schema.Unknown)),
           filename: Schema.optional(Schema.String),
           scale: Schema.optional(Schema.String),
           size: Schema.optional(Schema.String),
@@ -129,7 +140,7 @@ function appIconFilenames(contents: string): ReadonlyArray<string> {
   const decoded = decodeAppIconSetContents(contents);
   if (Option.isNone(decoded)) return [];
   const icons = decoded.value.images.flatMap(({ appearances, filename, scale, size }) =>
-    filename === undefined || appearances !== undefined
+    filename === undefined || (appearances?.length ?? 0) > 0
       ? []
       : [{ filename, pixels: (parseFloat(size ?? "") || 0) * (parseFloat(scale ?? "") || 1) }],
   );
@@ -320,11 +331,11 @@ export const make = Effect.gen(function* () {
     if (source === null) return null;
     const config = decodeExpoAppConfig(source);
     if (Option.isNone(config)) return null;
-    const { icon, ios } = config.value.expo ?? config.value;
+    const { android, icon, ios } = config.value.expo ?? config.value;
     const iosIcon = typeof ios?.icon === "string" ? ios.icon : ios?.icon?.light;
     return yield* findExistingFile(
       projectCwd,
-      [iosIcon, icon].filter((candidate) => candidate !== undefined),
+      [iosIcon, icon, android?.icon].filter((candidate) => candidate !== undefined),
       "workspace",
     );
   });
@@ -353,7 +364,9 @@ export const make = Effect.gen(function* () {
         );
         const found = yield* findExistingFile(
           projectCwd,
-          appIconFilenames(contents ?? "").map((filename) => path.join(relativePath, filename)),
+          takeReads(appIconFilenames(contents ?? "")).map((filename) =>
+            path.join(relativePath, filename),
+          ),
           "workspace",
         );
         if (found) return found;
@@ -461,7 +474,13 @@ export const make = Effect.gen(function* () {
       return fromSource;
     }
 
-    return (yield* findExpoIcon(projectCwd)) ?? (yield* findAppIcon(projectCwd));
+    return (
+      (yield* findExpoIcon(projectCwd)) ??
+      (yield* findAppIcon(projectCwd)) ??
+      (yield* firstInOrder(ANDROID_ICON_CANDIDATES, (candidate) =>
+        findExistingFile(projectCwd, [candidate], "workspace"),
+      ))
+    );
   });
 
   const faviconCache = yield* Cache.makeWith<string, string | null, ProjectFaviconResolutionError>(
