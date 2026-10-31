@@ -438,6 +438,48 @@ it.layer(layerTest)("ProjectFaviconResolverLive", (it) => {
       }),
     );
 
+    it.effect("treats empty app icon appearances as the default icon", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeAppIconSet(cwd, "App/Assets.xcassets/AppIcon.appiconset", [
+          { appearances: [], filename: "icon.png", idiom: "universal", size: "1024x1024" },
+        ]);
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(
+          path.join(cwd, "App/Assets.xcassets/AppIcon.appiconset/icon.png"),
+        );
+      }),
+    );
+
+    it.effect("bounds the file checks for images an app icon set lists", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(
+          cwd,
+          "App/Assets.xcassets/AppIcon.appiconset/Contents.json",
+          JSON.stringify({
+            images: Array.from({ length: 1000 }, (_, index) => ({ filename: `${index}.png` })),
+          }),
+        );
+        let checks = 0;
+        const resolver = yield* makeResolverWithFileSystem(
+          FileSystem.FileSystem.of({
+            ...fileSystem,
+            stat: (filePath) => {
+              if (filePath.includes(".appiconset")) checks += 1;
+              return fileSystem.stat(filePath);
+            },
+          }),
+        );
+
+        expect(yield* resolver.resolvePath(cwd)).toBeNull();
+        expect(checks).toBeLessThanOrEqual(256);
+      }),
+    );
+
     it.effect("prefers the app's icon over its extensions and alternates", () =>
       Effect.gen(function* () {
         const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
@@ -484,6 +526,63 @@ it.layer(layerTest)("ProjectFaviconResolverLive", (it) => {
             { filename: "icon.png", idiom: "universal", size: "1024x1024" },
           ]);
         }
+
+        expect(yield* resolver.resolvePath(cwd)).toBeNull();
+      }),
+    );
+
+    it.effect("uses the Android icon an Expo app.json declares", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(
+          cwd,
+          "app.json",
+          JSON.stringify({ expo: { android: { icon: "./android-icon.png" } } }),
+        );
+        yield* writeTextFile(cwd, "android-icon.png", "icon");
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(path.join(cwd, "android-icon.png"));
+      }),
+    );
+
+    it.effect("finds launcher icons in Android layouts", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        for (const icon of [
+          "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+          "app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp",
+        ]) {
+          const cwd = yield* makeTempDir;
+          yield* writeTextFile(cwd, icon, "icon");
+
+          expect(yield* resolver.resolvePath(cwd)).toBe(path.join(cwd, icon));
+        }
+      }),
+    );
+
+    it.effect("picks the smallest launcher icon that stays sharp", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        for (const density of ["mdpi", "hdpi", "xhdpi", "xxxhdpi"]) {
+          yield* writeTextFile(cwd, `app/src/main/res/mipmap-${density}/ic_launcher.png`, "icon");
+        }
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(
+          path.join(cwd, "app/src/main/res/mipmap-xhdpi/ic_launcher.png"),
+        );
+      }),
+    );
+
+    it.effect("ignores adaptive launcher icons that are only XML", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const cwd = yield* makeTempDir;
+        yield* writeTextFile(cwd, "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml", "<xml />");
 
         expect(yield* resolver.resolvePath(cwd)).toBeNull();
       }),
