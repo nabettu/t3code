@@ -745,11 +745,13 @@ const make = Effect.gen(function* () {
       args: ["reflog", "show", "--no-show-signature", "--format=%H", "HEAD"],
       allowNonZeroExit: true,
     });
+    // A partial reflog could hide the only record of a commit, so treat it as unprotected work.
+    if (reflog.exitCode !== 0 || reflog.stdoutTruncated) return true;
     const unprotected = yield* git.execute({
       operation: "StorageCleanup.detachedWork",
       cwd,
       args: ["rev-list", "--max-count=1", "--stdin", "--not", "--branches", "--remotes", "--tags"],
-      stdin: `HEAD\n${reflog.exitCode === 0 ? reflog.stdout : ""}`,
+      stdin: `HEAD\n${reflog.stdout}`,
     });
     return unprotected.stdout.trim() !== "";
   });
