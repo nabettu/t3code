@@ -21,9 +21,10 @@ export function ThreadHeader(props: {
   readonly hasThreadCwd: boolean;
   readonly inspectorMode: ThreadInspectorMode | null;
   readonly onOpenFilesInspector: () => void;
+  readonly onSettle?: () => void;
 }) {
   const goBack = useWorkspaceBackNavigation("threads");
-  const { toggleAuxiliaryPane, startNewTask } = useAdaptiveWorkspaceLayout();
+  const { layout, toggleAuxiliaryPane, startNewTask } = useAdaptiveWorkspaceLayout();
   const { panes } = useWorkspacePaneState();
   const gitMenu = useThreadGitMenuDefinition(props.gitControls);
   const terminalMenu = threadTerminalMenu(props.gitControls);
@@ -40,6 +41,14 @@ export function ThreadHeader(props: {
         },
       ]
     : [];
+  // Phones only: a split view keeps the thread list beside the chat.
+  if (props.onSettle && !layout.usesSplitView) {
+    actions.unshift({
+      accessibilityLabel: "Settle thread",
+      icon: "checkmark.circle",
+      onPress: props.onSettle,
+    });
+  }
   const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
 
   return (
