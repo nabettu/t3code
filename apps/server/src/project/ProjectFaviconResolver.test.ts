@@ -390,7 +390,55 @@ it.layer(layerTest)("ProjectFaviconResolverLive", (it) => {
         );
 
         expect(yield* resolver.resolvePath(cwd)).toBeNull();
-        expect(reads).toBeLessThanOrEqual(256);
+        expect(reads).toBeLessThanOrEqual(3 * 256);
+      }),
+    );
+
+    it.effect("finds an app icon among hundreds of catalogs or sibling folders", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const manyCatalogs = yield* makeTempDir;
+        yield* writeAppIconSet(manyCatalogs, "A.xcassets/AppIcon.appiconset", [
+          { filename: "icon.png", idiom: "universal", size: "1024x1024" },
+        ]);
+        const manyFolders = yield* makeTempDir;
+        yield* writeAppIconSet(manyFolders, "A/Assets.xcassets/AppIcon.appiconset", [
+          { filename: "icon.png", idiom: "universal", size: "1024x1024" },
+        ]);
+        for (let index = 0; index < 255; index += 1) {
+          yield* writeTextFile(manyCatalogs, `Extra${index}.xcassets/README`, "");
+          yield* writeTextFile(manyFolders, `Extra${index}/README`, "");
+        }
+
+        expect(yield* resolver.resolvePath(manyCatalogs)).toBe(
+          path.join(manyCatalogs, "A.xcassets/AppIcon.appiconset/icon.png"),
+        );
+        expect(yield* resolver.resolvePath(manyFolders)).toBe(
+          path.join(manyFolders, "A/Assets.xcassets/AppIcon.appiconset/icon.png"),
+        );
+      }),
+    );
+
+    it.effect("finds the first app icon set even when a catalog holds hundreds", () =>
+      Effect.gen(function* () {
+        const resolver = yield* ProjectFaviconResolver.ProjectFaviconResolver;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        yield* writeAppIconSet(cwd, "App/Assets.xcassets/AppIcon.appiconset", [
+          { filename: "icon.png", idiom: "universal", size: "1024x1024" },
+        ]);
+        for (let index = 0; index < 254; index += 1) {
+          yield* writeTextFile(
+            cwd,
+            `App/Assets.xcassets/Extra${index}.appiconset/Contents.json`,
+            JSON.stringify({ images: [] }),
+          );
+        }
+
+        expect(yield* resolver.resolvePath(cwd)).toBe(
+          path.join(cwd, "App/Assets.xcassets/AppIcon.appiconset/icon.png"),
+        );
       }),
     );
 

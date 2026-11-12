@@ -346,10 +346,14 @@ export const make = Effect.gen(function* () {
     function* (
       projectCwd: string,
       catalogs: ReadonlyArray<string>,
-      takeReads: <A>(items: ReadonlyArray<A>) => ReadonlyArray<A>,
+      budgets: {
+        readonly catalogs: <A>(items: ReadonlyArray<A>) => ReadonlyArray<A>;
+        readonly sets: <A>(items: ReadonlyArray<A>) => ReadonlyArray<A>;
+      },
     ) {
       const sets: Array<{ readonly relativePath: string; readonly rank: number }> = [];
-      for (const catalog of takeReads(catalogs)) {
+      for (const catalog of catalogs) {
+        if (budgets.catalogs([catalog]).length === 0) break;
         const entries = yield* readDirectoryIfReadable(path.join(projectCwd, catalog));
         for (const entry of entries) {
           if (entry.endsWith(".appiconset")) {
@@ -358,17 +362,16 @@ export const make = Effect.gen(function* () {
           }
         }
       }
-      for (const { relativePath } of takeReads(
-        sets.toSorted((left, right) => left.rank - right.rank),
-      )) {
+      for (const { relativePath } of sets.toSorted((left, right) => left.rank - right.rank)) {
+        if (budgets.sets([relativePath]).length === 0) break;
         const contents = yield* readFileIfReadable(
           path.join(projectCwd, relativePath, "Contents.json"),
         );
         const found = yield* findExistingFile(
           projectCwd,
-          takeReads(appIconFilenames(contents ?? "")).map((filename) =>
-            path.join(relativePath, filename),
-          ),
+          budgets
+            .sets(appIconFilenames(contents ?? ""))
+            .map((filename) => path.join(relativePath, filename)),
           "workspace",
         );
         if (found) return found;
@@ -382,16 +385,23 @@ export const make = Effect.gen(function* () {
     projectCwd: string,
   ): Effect.fn.Return<string | null, ProjectFaviconResolutionError> {
     let directories: ReadonlyArray<string> = [""];
-    let remainingReads = APP_ICON_SEARCH_READ_LIMIT;
-    const takeReads = <A>(items: ReadonlyArray<A>) => {
-      const taken = items.slice(0, remainingReads);
-      remainingReads -= taken.length;
-      return taken;
+    // Walking directories, listing catalogs, and checking icon sets each get a budget, charged per
+    // read as it happens, so a wide tree or many catalogs cannot spend the reads a real icon needs.
+    const readBudget = () => {
+      let remaining = APP_ICON_SEARCH_READ_LIMIT;
+      return <A>(items: ReadonlyArray<A>) => {
+        const taken = items.slice(0, remaining);
+        remaining -= taken.length;
+        return taken;
+      };
     };
+    const takeWalkReads = readBudget();
+    const checkBudgets = { catalogs: readBudget(), sets: readBudget() };
     for (let depth = 0; depth <= APP_ICON_SEARCH_DEPTH; depth += 1) {
       const catalogs: Array<string> = [];
       const nextDirectories: Array<string> = [];
-      for (const directory of takeReads(directories)) {
+      for (const directory of directories) {
+        if (takeWalkReads([directory]).length === 0) break;
         const entries = yield* readDirectoryIfReadable(path.join(projectCwd, directory));
         for (const entry of entries) {
           if (entry.endsWith(".xcassets")) {
@@ -406,7 +416,7 @@ export const make = Effect.gen(function* () {
           }
         }
       }
-      const found = yield* findIconInAppIconSets(projectCwd, catalogs, takeReads);
+      const found = yield* findIconInAppIconSets(projectCwd, catalogs, checkBudgets);
       if (found) return found;
       directories = nextDirectories;
     }
