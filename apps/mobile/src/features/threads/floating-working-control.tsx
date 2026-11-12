@@ -81,7 +81,10 @@ export function FloatingWorkingControl(props: {
   readonly queuedCount: number;
   readonly onOpenQueue: () => void;
   readonly lift?: SharedValue<number>;
+  /** Width kept clear at the right end for a button on the same row. */
+  readonly endInset?: number;
 }) {
+  const endInset = props.endInset ?? 0;
   const { width: windowWidth } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
   const [overlayWidth, setOverlayWidth] = useState(windowWidth);
@@ -108,6 +111,7 @@ export function FloatingWorkingControl(props: {
   const availableLabelWidth = Math.max(
     0,
     Math.min(overlayWidth, windowWidth) -
+      endInset -
       reservedWidth -
       (action !== null ? actionWidth : 0) -
       (hasQueue ? queueWidth : 0) -
@@ -307,7 +311,7 @@ export function FloatingWorkingControl(props: {
     <Animated.View
       pointerEvents="box-none"
       className="absolute left-0 right-0 z-20 items-center"
-      style={[{ top: -CONTROL_OVERLAY_OFFSET }, liftStyle]}
+      style={[{ top: -CONTROL_OVERLAY_OFFSET, paddingRight: endInset }, liftStyle]}
       onLayout={(event) => setOverlayWidth(event.nativeEvent.layout.width)}
       entering={useGlass || extensionOnly || reducedMotion ? undefined : CONTROL_ENTERING}
       exiting={useGlass || extensionOnly || reducedMotion ? undefined : CONTROL_EXITING}

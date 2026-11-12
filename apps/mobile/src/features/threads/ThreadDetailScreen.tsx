@@ -206,6 +206,7 @@ import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
 import { WorkspaceMutationIdProvider } from "./WorkspaceMutationIdProvider";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
+import { SETTLE_FLOATING_RESERVED, SettleFloatingButton } from "./SettleFloatingButton";
 import { useThreadQueuedCount } from "./ThreadQueueControl";
 import { ThreadGuestShareBar } from "./ThreadGuestShareBar";
 import { ThreadSideChatsRow } from "./ThreadSideChatsRow";
@@ -308,6 +309,7 @@ export interface ThreadDetailScreenProps {
     onWillEnqueue?: () => void,
   ) => Promise<MessageId | null>;
   readonly onReconnectEnvironment: () => void;
+  readonly onSettle?: () => void;
   readonly canSwitchThreadProvider: boolean;
   readonly onRespondToApproval: ApprovalResponder;
   readonly onSelectUserInputOption: (
@@ -1049,7 +1051,8 @@ function ThreadDetailBody(
   // The question card reads the keyboard frame on the UI thread, in the same frame the sticky
   // view translates, so it gets the full height while the keyboard is closed and never crosses
   // the header while the keyboard moves.
-  const { height: keyboardTranslation } = useReanimatedKeyboardAnimation();
+  const { height: keyboardTranslation, progress: keyboardProgress } =
+    useReanimatedKeyboardAnimation();
   const pendingUserInputMaxHeight = useDerivedValue(() =>
     derivePendingUserInputMaxHeight({
       windowHeight: screenAreaHeight,
@@ -1060,6 +1063,18 @@ function ThreadDetailBody(
         composerBottomInset +
         (questionInFlow && showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0),
     }),
+  );
+  // Unlike the feed inset, this follows an in-flow question card too.
+  const composerOverlayHeight = useSharedValue(estimatedOverlayHeight);
+  const settleRoom = useDerivedValue(
+    () =>
+      screenAreaHeight -
+      navigationHeaderHeight -
+      controlInsets.bottom -
+      (keyboardStickyEnabled
+        ? -keyboardTranslation.value - composerKeyboardOffset * keyboardProgress.value
+        : 0) -
+      composerOverlayHeight.value,
   );
   // A question pads itself clear of the bottom inset, below the card's own height limit.
   const questionBottomInset = activeUserInputRequestId !== null ? composerBottomInset : 0;
@@ -1083,6 +1098,7 @@ function ThreadDetailBody(
   const usageLimitsOpen = usageLimitsReport !== null && activeUserInputRequestId === null;
   const [usageLimitsLayout, setUsageLimitsLayout] = useState({ overlay: 0, panel: 0 });
   const handleComposerOverlayLayout = (event: LayoutChangeEvent) => {
+    composerOverlayHeight.set(event.nativeEvent.layout.height);
     if (!questionInFlow) onComposerLayout(event);
     if (!usageLimitsOpen) return;
     const overlay = event.nativeEvent.layout.height;
@@ -1612,6 +1628,7 @@ function ThreadDetailBody(
                         : null
                     }
                     lift={floatingControlLift}
+                    endInset={props.onSettle ? SETTLE_FLOATING_RESERVED : 0}
                     devicePreview={
                       devicePreviews.length > 0
                         ? { count: devicePreviews.length, onPress: openDevicePreview }
@@ -1641,6 +1658,13 @@ function ThreadDetailBody(
                       });
                     }}
                   />
+                  {props.onSettle ? (
+                    <SettleFloatingButton
+                      onPress={props.onSettle}
+                      lift={floatingControlLift}
+                      room={settleRoom}
+                    />
+                  ) : null}
                   <ComposerPanels
                     className="w-full"
                     style={Platform.OS === "android" ? composerPanelsHeightStyle : undefined}

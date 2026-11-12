@@ -119,6 +119,8 @@ import {
   useAndroidWorkspaceBack,
   useWorkspaceBackNavigation,
 } from "../layout/workspace/useAndroidWorkspaceNavigation";
+import { useThreadListActions } from "../home/useThreadListActions";
+import { useSelectWorkspaceTab } from "../layout/workspace/useSelectWorkspaceTab";
 import { openSettings } from "../settings/settings-navigation";
 import {
   InspectorContentScope,
@@ -575,6 +577,33 @@ function ThreadRouteContent(
   };
   const gitActionProgress = useGitActionProgress(gitActionProgressTarget);
 
+  const { settleThread } = useThreadListActions();
+  const selectWorkspaceTab = useSelectWorkspaceTab();
+  const routeKey = useRoute().key;
+  // Confirmed so a stray tap on the floating button cannot close the chat.
+  const handleSettleAndClose = () => {
+    if (selectedThread === null) return;
+    const thread = selectedThread;
+    Dialog.confirm({
+      title: "Settle this thread?",
+      message: "The chat closes and you return to the thread list.",
+      cancelText: "No",
+      confirmText: "OK",
+      onConfirm: () => {
+        void settleThread(thread).then((settled) => {
+          // Leaving mid-request, or a link swapping this route to another thread, means the user
+          // already moved on; don't close what they opened next.
+          const params = navigation.getState()?.routes.find((r) => r.key === routeKey)
+            ?.params as typeof props.route.params;
+          const stillShown =
+            navigation.isFocused() &&
+            params?.environmentId === String(thread.environmentId) &&
+            params?.threadId === String(thread.id);
+          if (settled && stillShown) selectWorkspaceTab("threads");
+        });
+      },
+    });
+  };
   const handleOpenGitInspector = () => {
     navigation.setParams({ inspector: undefined });
     setChosenInspectorMode("git");
@@ -1101,6 +1130,8 @@ function ThreadRouteContent(
           onSendMessage={composer.onSendMessage}
           offersSideChat={composer.sideChatUnavailableReason === null}
           onReconnectEnvironment={handleReconnectEnvironment}
+          // Phones only: a split view keeps the thread list beside the chat.
+          onSettle={canOperateThread && !layout.usesSplitView ? handleSettleAndClose : undefined}
           canSwitchThreadProvider={composer.canSwitchThreadProvider}
           onRespondToApproval={requests.onRespondToApproval}
           onSelectUserInputOption={requests.onSelectUserInputOption}
