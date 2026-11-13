@@ -1086,13 +1086,15 @@ export default function FilePreviewPanel({
     attachment !== undefined || (relativePath !== null && isHostPath(relativePath));
   const fileAccess = useFilesystemReadAccess(environmentId);
   const { canReadFiles } = fileAccess;
-  const canWriteFiles = useEnvironmentScope(environmentId, AuthFilesystemWriteScope);
+  const hasWriteScope = useEnvironmentScope(environmentId, AuthFilesystemWriteScope);
   const file = useProjectFileQuery(
     environmentId,
     cwd,
     relativePath,
     attachment === undefined && relativePath !== null,
   );
+  // Only the server knows which host files a save may reach, such as T3's own state.
+  const canWriteFiles = hasWriteScope && (!isHostFile || file.data?.writable === true);
   const [fileRefreshRevision, setFileRefreshRevision] = useState(0);
   const attemptedPath = file.readError?.resolvedPath ?? file.readError?.operationPath;
   // Folder links fail file reads; retain mutation refresh to detect conversion to files. Host folders own
@@ -1178,7 +1180,7 @@ export default function FilePreviewPanel({
     !isDocument;
   const mayOpenEditor =
     previewPath !== null &&
-    !isHostFile &&
+    attachment === undefined &&
     canWriteFiles &&
     file.error === null &&
     !file.data?.truncated &&
@@ -1451,7 +1453,7 @@ export default function FilePreviewPanel({
           ) : null}
         </div>
       ) : null}
-      {relativePath && !attachment && !isHostFile && !canWriteFiles && !fileAccess.isPending ? (
+      {relativePath && !attachment && !hasWriteScope && !fileAccess.isPending ? (
         <div className="shrink-0 border-b px-3 py-1.5 text-2xs text-muted-foreground">
           Read-only connection. Unsaved edits are kept until write access returns.
         </div>
@@ -1626,7 +1628,7 @@ export default function FilePreviewPanel({
                 threadRef={threadRef}
                 contents={file.data.contents}
                 workspaceMutationId={workspaceMutationId}
-                readOnly={file.data.truncated || isHostFile || !canWriteFiles}
+                readOnly={file.data.truncated || !canWriteFiles}
                 onPendingChange={onPendingChange}
               />
             ) : tableDelimiter && renderTable ? (
@@ -1636,7 +1638,7 @@ export default function FilePreviewPanel({
                 text={file.data.contents}
                 delimiter={tableDelimiter}
               />
-            ) : file.data.truncated || isHostFile || !canWriteFiles ? (
+            ) : file.data.truncated || !canWriteFiles ? (
               <SourceFilePreview
                 name={relativePath}
                 text={file.data.contents}

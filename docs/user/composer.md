@@ -408,9 +408,11 @@ can break the preview, so save a copy if you need to keep it.
 
 ## Files outside the workspace
 
-Follow an agent's file link to read a report or other file outside the workspace.
-These files open read-only. An HTML file outside the workspace cannot load scripts,
-styles, or images from neighboring files.
+Follow an agent's file link to read or edit a report, an env file, or another file
+outside the workspace. On web and desktop, edits save over the file in place, as they
+do for workspace files. T3 Code does not create new files outside the workspace, and it
+does not edit its own state or files inside a Git folder. An HTML file outside the
+workspace cannot load scripts, styles, or images from neighboring files.
 
 ## HTML and PDF files in the file viewer
 

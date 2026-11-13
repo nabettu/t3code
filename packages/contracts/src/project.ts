@@ -437,7 +437,7 @@ export class ProjectListEntriesError extends Schema.TaggedError<ProjectListEntri
 
 export const ProjectReadFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  // Workspace-relative or absolute host path; only workspace-relative paths are writable.
+  // Workspace-relative, absolute, or `~/` host path.
   relativePath: Schema.NonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
   // Optional files can be absent without failing the read.
   allowMissing: Schema.optional(Schema.Boolean),
@@ -451,6 +451,8 @@ export const ProjectReadFileResult = Schema.Struct({
   truncated: Schema.Boolean,
   // Omitted by older servers; false only for an absent optional file.
   exists: Schema.optional(Schema.Boolean),
+  // Host paths only: whether a save would be accepted. Older servers omit it and refuse saves.
+  writable: Schema.optional(Schema.Boolean),
 });
 export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
 
@@ -513,6 +515,7 @@ export class ProjectReadFileError extends Schema.TaggedError<ProjectReadFileErro
 
 export const ProjectWriteFileInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
+  // A host path (absolute or `~/`) may only save over a file that already exists.
   relativePath: Schema.NonEmptyString.check(Schema.isMaxLength(PROJECT_WRITE_FILE_PATH_MAX_LENGTH)),
   contents: Schema.String,
 });

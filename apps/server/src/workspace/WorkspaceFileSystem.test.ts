@@ -262,6 +262,7 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           contents: "# Report\n",
           byteLength: 9,
           truncated: false,
+          writable: true,
         });
 
         for (const relativePath of whitespaceFilePaths) {
@@ -291,6 +292,7 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
           contents: "# Notes\n",
           byteLength: 8,
           truncated: false,
+          writable: true,
         });
       }),
     );
@@ -522,19 +524,236 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceFileSystemLive", (i
       }),
     );
 
-    it.effect("rejects writes by absolute path", () =>
+    it.effect("saves an existing host file in place by absolute or ~/ path", () =>
       Effect.gen(function* () {
         const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const cwd = yield* makeTempDir;
         const outsideDir = yield* makeTempDir;
-        const absolutePath = path.join(outsideDir, "cleanup-report.md");
+        yield* writeTextFile(outsideDir, ".env", "A=1\n");
+        const absolutePath = path.join(outsideDir, ".env");
+
+        const result = yield* workspaceFileSystem.writeFile({
+          cwd,
+          relativePath: absolutePath,
+          contents: "A=2\n",
+        });
+
+        expect(result).toEqual({ relativePath: absolutePath });
+        expect(yield* fileSystem.readFileString(absolutePath)).toBe("A=2\n");
+
+        const home = yield* makeTempDir;
+        yield* writeTextFile(home, ".config/app.env", "B=1\n");
+        yield* workspaceFileSystem
+          .writeFile({ cwd, relativePath: "~/.config/app.env", contents: "B=2\n" })
+          .pipe(Effect.provideService(HostProcess.HomeDirectory, home));
+        expect(yield* fileSystem.readFileString(path.join(home, ".config/app.env"))).toBe("B=2\n");
+        expect(yield* fileSystem.exists(path.join(cwd, "~"))).toBe(false);
+      }),
+    );
+
+    it.effect("does not create new files outside the workspace", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outsideDir = yield* makeTempDir;
+
+        for (const relativePath of [
+          path.join(outsideDir, "new.md"),
+          path.join(outsideDir, "missing/new.md"),
+        ]) {
+          yield* workspaceFileSystem
+            .writeFile({ cwd, relativePath, contents: "# nope\n" })
+            .pipe(Effect.flip);
+        }
+
+        expect(yield* fileSystem.readDirectory(outsideDir)).toEqual([]);
+      }),
+    );
+
+    it.effect("refuses host writes to folders, server state, and git metadata", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const config = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(config.secretsDir, "example.bin", "secret\n");
+        yield* writeTextFile(outsideDir, "repo/.git/config", "[core]\n");
+        yield* fileSystem.makeDirectory(path.join(outsideDir, "folder"));
+
+        const secretPath = path.join(config.secretsDir, "example.bin");
+        expect(
+          yield* workspaceFileSystem
+            .writeFile({ cwd, relativePath: secretPath, contents: "x" })
+            .pipe(Effect.flip),
+        ).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
+        expect(
+          yield* workspaceFileSystem
+            .writeFile({
+              cwd,
+              relativePath: path.join(outsideDir, "repo/.git/config"),
+              contents: "[core]\n\tfsmonitor = x\n",
+            })
+            .pipe(Effect.flip),
+        ).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFilePathEscapeError);
+        expect(
+          yield* workspaceFileSystem
+            .writeFile({ cwd, relativePath: path.join(outsideDir, "folder"), contents: "x" })
+            .pipe(Effect.flip),
+        ).toBeInstanceOf(WorkspaceFileSystem.WorkspacePathNotFileError);
+
+        expect(yield* fileSystem.readFileString(secretPath)).toBe("secret\n");
+        expect(yield* fileSystem.readFileString(path.join(outsideDir, "repo/.git/config"))).toBe(
+          "[core]\n",
+        );
+      }),
+    );
+
+    it.effect.skipIf(!symlinksSupported || HostProcess.Platform.defaultValue() === "win32")(
+      "saves through `link/..` to the file a read of the same path shows",
+      () =>
+        Effect.gen(function* () {
+          const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cwd = yield* makeTempDir;
+          const linkParent = yield* makeTempDir;
+          const realParent = yield* makeTempDir;
+          yield* writeTextFile(realParent, "child/.keep");
+          yield* writeTextFile(realParent, "notes.md", "shown\n");
+          yield* writeTextFile(linkParent, "notes.md", "elsewhere\n");
+          yield* fileSystem.symlink(path.join(realParent, "child"), path.join(linkParent, "link"));
+          const requestedPath = `${linkParent}/link/../notes.md`;
+
+          const read = yield* workspaceFileSystem.readFile({ cwd, relativePath: requestedPath });
+          yield* workspaceFileSystem.writeFile({
+            cwd,
+            relativePath: requestedPath,
+            contents: "saved\n",
+          });
+
+          expect(read.contents).toBe("shown\n");
+          expect(yield* fileSystem.readFileString(path.join(realParent, "notes.md"))).toBe(
+            "saved\n",
+          );
+          expect(yield* fileSystem.readFileString(path.join(linkParent, "notes.md"))).toBe(
+            "elsewhere\n",
+          );
+        }),
+    );
+
+    it.effect("refuses host writes anywhere in the server state folder", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const config = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* writeTextFile(config.stateDir, "settings.json", "{}\n");
+        const cwd = yield* makeTempDir;
 
         const error = yield* workspaceFileSystem
-          .writeFile({ cwd, relativePath: absolutePath, contents: "# Edited\n" })
+          .writeFile({ cwd, relativePath: config.settingsPath, contents: '{"x":1}\n' })
           .pipe(Effect.flip);
 
         expect(error).toBeInstanceOf(WorkspacePaths.WorkspacePathOutsideRootError);
+        expect(yield* fileSystem.readFileString(config.settingsPath)).toBe("{}\n");
+      }),
+    );
+
+    it.effect.skipIf(!symlinksSupported)(
+      "keeps a linked settings file and Git metadata read-only, and says so on read",
+      () =>
+        Effect.gen(function* () {
+          const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+          const config = yield* ServerConfig.ServerConfig;
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cwd = yield* makeTempDir;
+          const dotfiles = yield* makeTempDir;
+          yield* writeTextFile(dotfiles, "t3-settings.json", "{}\n");
+          yield* fileSystem.makeDirectory(config.stateDir, { recursive: true });
+          yield* fileSystem.remove(config.settingsPath).pipe(Effect.ignore);
+          yield* fileSystem.symlink(path.join(dotfiles, "t3-settings.json"), config.settingsPath);
+          yield* writeTextFile(dotfiles, "repo.git/HEAD", "ref: refs/heads/main\n");
+          yield* writeTextFile(dotfiles, "repo.git/objects/.keep");
+          yield* writeTextFile(dotfiles, "repo.git/refs/.keep");
+          yield* writeTextFile(dotfiles, "repo.git/config", "[core]\n");
+          const bareConfig = path.join(dotfiles, "repo.git/config");
+
+          for (const relativePath of [config.settingsPath, bareConfig]) {
+            const read = yield* workspaceFileSystem.readFile({ cwd, relativePath });
+            expect(read.writable, relativePath).toBe(false);
+            yield* workspaceFileSystem
+              .writeFile({ cwd, relativePath, contents: "x" })
+              .pipe(Effect.flip);
+          }
+
+          expect(yield* fileSystem.readFileString(path.join(dotfiles, "t3-settings.json"))).toBe(
+            "{}\n",
+          );
+          expect(yield* fileSystem.readFileString(bareConfig)).toBe("[core]\n");
+        }),
+    );
+
+    it.effect("refuses a host write when the path moves to another file after the checks", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir;
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(outsideDir, "notes.txt", "keep\n");
+        yield* writeTextFile(outsideDir, "other.txt", "other\n");
+        const target = path.join(outsideDir, "notes.txt");
+        const native = yield* Effect.promise(() =>
+          vi.importActual<typeof NodeFSP>("node:fs/promises"),
+        );
+        const realTarget = yield* Effect.promise(() => native.realpath(target));
+        const realOther = yield* Effect.promise(() =>
+          native.realpath(path.join(outsideDir, "other.txt")),
+        );
+        let calls = 0;
+        const realpath = vi.mocked(NodeFSP.realpath).mockImplementation((async (value: string) => {
+          if (value !== target) return native.realpath(value);
+          calls += 1;
+          // The second lookup runs after the open, as if a parent folder had been swapped.
+          return calls === 1 ? realTarget : realOther;
+        }) as typeof NodeFSP.realpath);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => realpath.mockImplementation(native.realpath)),
+        );
+
+        const error = yield* workspaceFileSystem
+          .writeFile({ cwd, relativePath: target, contents: "x" })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(WorkspaceFileSystem.WorkspaceFilePathEscapeError);
+        expect(yield* fileSystem.readFileString(target)).toBe("keep\n");
+        expect(yield* fileSystem.readFileString(realOther)).toBe("other\n");
+      }),
+    );
+
+    it.effect("rejects host writes outside a known workspace", () =>
+      Effect.gen(function* () {
+        const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const cwd = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: UNKNOWN_WORKSPACE_PREFIX,
+        });
+        const outsideDir = yield* makeTempDir;
+        yield* writeTextFile(outsideDir, "notes.txt", "keep\n");
+
+        const error = yield* workspaceFileSystem
+          .writeFile({ cwd, relativePath: path.join(outsideDir, "notes.txt"), contents: "x" })
+          .pipe(Effect.flip);
+
+        expect(error).toBeInstanceOf(KnownWorkspaces.UnknownWorkspaceError);
+        expect(yield* fileSystem.readFileString(path.join(outsideDir, "notes.txt"))).toBe("keep\n");
       }),
     );
 

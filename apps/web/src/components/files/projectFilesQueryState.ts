@@ -88,6 +88,14 @@ export function setProjectFileQueryData(
   contents: string,
 ): void {
   const atom = optimisticFileAtom(environmentId, cwd, relativePath);
+  // A host file's editor is shown only while the read said a save may reach it.
+  const writable =
+    appAtomRegistry.get(atom)?.data.writable ??
+    Option.getOrUndefined(
+      AsyncResult.value(
+        appAtomRegistry.get(getProjectFileQueryAtom(environmentId, cwd, relativePath)),
+      ),
+    )?.writable;
   if (!unsavedFileMounts.has(atom)) {
     unsavedFileMounts.set(atom, appAtomRegistry.mount(atom));
   }
@@ -98,6 +106,7 @@ export function setProjectFileQueryData(
       contents,
       byteLength: new TextEncoder().encode(contents).byteLength,
       truncated: false,
+      ...(writable === undefined ? {} : { writable }),
     },
   });
 }

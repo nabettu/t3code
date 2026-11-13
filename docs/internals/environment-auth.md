@@ -129,8 +129,10 @@ after 30 days.
 Projects are organizational boundaries, not filesystem sandboxes.
 `filesystem:read` permits reading files the server account can read, including
 absolute paths outside a project. This lets clients display artifacts that an
-agent writes in a temporary directory. Relative paths and writes still follow
-the [workspace path rules](../../apps/server/src/workspace/WorkspaceFileSystem.ts).
+agent writes in a temporary directory. `filesystem:write` likewise saves over an
+existing host file named by an absolute or `~/` path, but never creates one there.
+Relative paths still follow the
+[workspace path rules](../../apps/server/src/workspace/WorkspaceFileSystem.ts).
 
 Signed asset URLs are bearer credentials. A URL for media on the host grants
 access to one canonical file and its device/inode identity, not its containing directory.

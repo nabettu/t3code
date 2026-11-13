@@ -54,6 +54,28 @@ describe("project files queries", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps a host file editable while its edits are unsaved", () => {
+    const closePreview = appAtomRegistry.mount(optimisticFile);
+    appAtomRegistry.set(optimisticFile, {
+      confirmedAgainst: undefined,
+      data: {
+        relativePath: "convex.json",
+        contents: "{}",
+        byteLength: 2,
+        truncated: false,
+        writable: true,
+      },
+    });
+
+    setProjectFileQueryData(environmentId, "/repo", "convex.json", "{ }");
+
+    expect(getOptimisticProjectFileQueryData(environmentId, "/repo", "convex.json")).toMatchObject({
+      contents: "{ }",
+      writable: true,
+    });
+    closePreview();
+  });
+
   it("resumes an unsaved draft after closing the preview and restoring write access", async () => {
     vi.stubGlobal("window", {});
     vi.useFakeTimers();

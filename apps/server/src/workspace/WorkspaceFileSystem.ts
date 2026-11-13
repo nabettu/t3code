@@ -6,6 +6,7 @@ import type {
   FilesystemEntryMetadata,
   FilesystemGetMetadataInput,
   FilesystemGetMetadataResult,
+  ProjectFileOperation,
   ProjectReadFileInput,
   ProjectReadFileResult,
   ProjectWriteFileInput,
@@ -22,6 +23,7 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import { makeIsServerInternalPath } from "../auth/serverInternalPaths.ts";
+import * as ServerConfig from "../config.ts";
 import * as KnownWorkspaces from "./KnownWorkspaces.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
@@ -34,6 +36,8 @@ const isGitMetadataName = (segment: string) => {
   const name = (segment.split(":")[0] ?? "").replace(/[. ]+$/, "").toUpperCase();
   return name === ".GIT" || name === "GIT~1";
 };
+
+type FileTarget = { readonly cwd: string; readonly relativePath: string };
 
 export class WorkspaceFileSystemOperationError extends Schema.TaggedError<WorkspaceFileSystemOperationError>()(
   "WorkspaceFileSystemOperationError",
@@ -121,7 +125,10 @@ export class WorkspaceFileSystem extends Context.Service<
       ProjectReadFileResult,
       WorkspaceFileSystemError | WorkspacePaths.WorkspacePathOutsideRootError
     >;
-    /** Writes inside a known workspace only. */
+    /**
+     * Writes inside a known workspace, or saves over an existing host file named by an
+     * absolute or `~/` path. Host paths never create files.
+     */
     readonly writeFile: (
       input: ProjectWriteFileInput,
     ) => Effect.Effect<
@@ -141,6 +148,7 @@ export const make = Effect.gen(function* () {
   const knownWorkspaces = yield* KnownWorkspaces.KnownWorkspaces;
   const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
   const isServerInternalPath = yield* makeIsServerInternalPath;
+  const serverConfig = yield* ServerConfig.ServerConfig;
 
   const metadataForPath = Effect.fnUntraced(function* (requestedPath: string) {
     const expandedPath = expandHomePath(requestedPath, yield* HostProcess.HomeDirectory);
@@ -263,7 +271,7 @@ export const make = Effect.gen(function* () {
           () => Effect.succeed(null),
         ),
       );
-      return { relativePath: requestedPath, realTargetPath };
+      return { relativePath: requestedPath, realTargetPath, hostPath: absolutePath };
     }
 
     const target = yield* workspacePaths.resolveRelativePathWithinRoot({
@@ -334,6 +342,7 @@ export const make = Effect.gen(function* () {
     return {
       relativePath: target.relativePath,
       realTargetPath: resolved.exists ? resolved.realTargetPath : null,
+      hostPath: null,
     };
   });
 
@@ -356,6 +365,16 @@ export const make = Effect.gen(function* () {
         relativePath: input.relativePath,
       });
     }
+    // The client cannot tell which host files a save would reach, so the read says.
+    const hostWritable =
+      target.hostPath === null
+        ? {}
+        : {
+            writable: yield* hostWriteRefusal(input, target.hostPath, realTargetPath).pipe(
+              Effect.map((refusal) => refusal === null),
+              Effect.orElseSucceed(() => false),
+            ),
+          };
 
     return yield* Effect.acquireUseRelease(
       Effect.tryPromise({
@@ -439,6 +458,7 @@ export const make = Effect.gen(function* () {
             contents: new TextDecoder("utf-8").decode(fileBytes, { stream: truncated }),
             byteLength: stat.size,
             truncated,
+            ...hostWritable,
           };
         }),
       (handle) =>
@@ -457,6 +477,178 @@ export const make = Effect.gen(function* () {
                 }),
             }),
     );
+  });
+
+  const checkInGitFolder = Effect.fn("WorkspaceFileSystem.inGitFolder")(
+    (input: FileTarget, resolvedPath: string, checkedPath: string) =>
+      Effect.tryPromise({
+        try: () => isInGitFolder(checkedPath),
+        catch: (cause) =>
+          new WorkspaceFileSystemOperationError({
+            workspaceRoot: input.cwd,
+            relativePath: input.relativePath,
+            resolvedPath,
+            operationPath: checkedPath,
+            operation: "stat",
+            cause,
+          }),
+      }),
+  );
+
+  /**
+   * Why a save to this host file would be refused, or null. The state folder is checked
+   * by the path as named too, since its settings file may be a link to a dotfiles repo.
+   */
+  const hostWriteRefusal = Effect.fn("WorkspaceFileSystem.hostWriteRefusal")(function* (
+    input: FileTarget,
+    absolutePath: string,
+    realTargetPath: string,
+  ) {
+    const namedTargetPath = path.resolve(absolutePath);
+    const realStateDir = yield* Effect.promise(() =>
+      NodeFSP.realpath(serverConfig.stateDir).catch(() => path.resolve(serverConfig.stateDir)),
+    );
+    const stateDirs = [realStateDir, path.resolve(serverConfig.stateDir)];
+    if (
+      (yield* isServerInternalPath(realTargetPath)) ||
+      stateDirs.some(
+        (stateDir) =>
+          KnownWorkspaces.isWithinRoot(path, realTargetPath, stateDir) ||
+          KnownWorkspaces.isWithinRoot(path, namedTargetPath, stateDir),
+      )
+    ) {
+      return new WorkspacePaths.WorkspacePathOutsideRootError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+      });
+    }
+    if (
+      (yield* checkInGitFolder(input, realTargetPath, realTargetPath)) ||
+      (yield* checkInGitFolder(input, realTargetPath, namedTargetPath))
+    ) {
+      return new WorkspaceFilePathEscapeError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+        resolvedWorkspaceRoot: path.resolve(input.cwd),
+        resolvedPath: realTargetPath,
+      });
+    }
+    return null;
+  });
+
+  /**
+   * A host path saves over a file that already exists, such as an env file an agent
+   * linked from outside the project. It never creates one, so a typo cannot scatter
+   * files across the host. The server's own state folder stays off limits: its settings
+   * have their own guarded RPCs.
+   */
+  const writeHostFile = Effect.fn("WorkspaceFileSystem.writeHostFile")(function* (
+    input: ProjectWriteFileInput,
+    hostPath: string,
+  ) {
+    const outsideRoot = () =>
+      new WorkspacePaths.WorkspacePathOutsideRootError({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+      });
+    const operationError =
+      (operation: ProjectFileOperation, resolvedPath: string) => (cause: unknown) =>
+        new WorkspaceFileSystemOperationError({
+          workspaceRoot: input.cwd,
+          relativePath: input.relativePath,
+          resolvedPath,
+          operationPath: resolvedPath,
+          operation,
+          cause,
+        });
+    // Windows signs in to a network path's host with the user's NTLM credentials.
+    if (
+      isNetworkPath(hostPath) &&
+      !KnownWorkspaces.isWithinRoot(path, path.resolve(hostPath), path.resolve(input.cwd))
+    ) {
+      return yield* outsideRoot();
+    }
+    let closed = false;
+    // Resolved exactly as readFile resolves it, so a save lands on the file that was shown.
+    const absolutePath = isNetworkPath(hostPath) ? path.resolve(hostPath) : hostPath;
+    const resolveTarget = Effect.tryPromise({
+      try: () => NodeFSP.realpath(absolutePath),
+      catch: operationError("realpath-target", absolutePath),
+    });
+    const realTargetPath = yield* resolveTarget;
+    const refusal = yield* hostWriteRefusal(input, absolutePath, realTargetPath);
+    if (refusal !== null) return yield* refusal;
+
+    yield* Effect.acquireUseRelease(
+      Effect.tryPromise({
+        // No O_CREAT or O_TRUNC: nothing changes until the opened file is confirmed.
+        // O_NONBLOCK keeps a FIFO from hanging the open. Windows lacks both flags.
+        try: () =>
+          NodeFSP.open(
+            realTargetPath,
+            NodeFS.constants.O_WRONLY |
+              (NodeFS.constants.O_NOFOLLOW ?? 0) |
+              (NodeFS.constants.O_NONBLOCK ?? 0),
+          ),
+        catch: (cause) =>
+          (cause as NodeJS.ErrnoException).code === "EISDIR"
+            ? new WorkspacePathNotFileError({
+                workspaceRoot: input.cwd,
+                relativePath: input.relativePath,
+                resolvedPath: realTargetPath,
+              })
+            : operationError("open", realTargetPath)(cause),
+      }),
+      (handle) =>
+        Effect.gen(function* () {
+          const opened = yield* Effect.tryPromise({
+            try: () => handle.stat(),
+            catch: operationError("stat", realTargetPath),
+          });
+          if (!opened.isFile()) {
+            return yield* new WorkspacePathNotFileError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedPath: realTargetPath,
+            });
+          }
+          // A parent folder swapped for a link between the checks and the open would
+          // reach a file the checks never saw. Resolving again after the open proves
+          // the open file is the one at the checked path.
+          const current = yield* Effect.tryPromise({
+            try: async () => {
+              const resolved = await NodeFSP.realpath(absolutePath);
+              return { resolved, stat: await NodeFSP.stat(resolved) };
+            },
+            catch: operationError("realpath-target", absolutePath),
+          });
+          if (
+            current.resolved !== realTargetPath ||
+            current.stat.dev !== opened.dev ||
+            current.stat.ino !== opened.ino
+          ) {
+            return yield* new WorkspaceFilePathEscapeError({
+              workspaceRoot: input.cwd,
+              relativePath: input.relativePath,
+              resolvedWorkspaceRoot: path.resolve(input.cwd),
+              resolvedPath: current.resolved,
+            });
+          }
+          yield* Effect.tryPromise({
+            try: async () => {
+              await handle.truncate(0);
+              await handle.writeFile(input.contents);
+              // Some filesystems report a failed write only at close, so it must fail the save.
+              closed = true;
+              await handle.close();
+            },
+            catch: operationError("write-file", realTargetPath),
+          });
+        }),
+      (handle) =>
+        closed ? Effect.void : Effect.promise(() => handle.close().catch(() => undefined)),
+    );
+    return { relativePath: input.relativePath };
   });
 
   // Resolve existing ancestors and reject dangling links so creation cannot follow symlinks outside root.
@@ -512,20 +704,8 @@ export const make = Effect.gen(function* () {
     });
     // The path as named is checked too: a `.git/config` symlink resolves away the `.git`.
     const namedTargetPath = path.join(realWorkspaceRoot, ...segments);
-    const inGitFolder = Effect.fn("WorkspaceFileSystem.inGitFolder")((checkedPath: string) =>
-      Effect.tryPromise({
-        try: () => isInGitFolder(checkedPath),
-        catch: (cause) =>
-          new WorkspaceFileSystemOperationError({
-            workspaceRoot: input.cwd,
-            relativePath: input.relativePath,
-            resolvedPath: realTargetPath,
-            operationPath: checkedPath,
-            operation: "stat",
-            cause,
-          }),
-      }),
-    );
+    const inGitFolder = (checkedPath: string) =>
+      checkInGitFolder(input, realTargetPath, checkedPath);
     if (
       !isInsideRealRoot(realWorkspaceRoot, realTargetPath) ||
       (yield* inGitFolder(realTargetPath)) ||
@@ -545,6 +725,10 @@ export const make = Effect.gen(function* () {
     "WorkspaceFileSystem.writeFile",
   )(function* (input) {
     yield* knownWorkspaces.assertContains(input.cwd);
+    const hostPath = input.relativePath.startsWith("~/")
+      ? expandHomePath(input.relativePath, yield* HostProcess.HomeDirectory)
+      : input.relativePath;
+    if (path.isAbsolute(hostPath)) return yield* writeHostFile(input, hostPath);
     const target = yield* resolveWriteTarget(input);
     const realTargetPath = target.realTargetPath;
     const replacesFile = yield* fileSystem
