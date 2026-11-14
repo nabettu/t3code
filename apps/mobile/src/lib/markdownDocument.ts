@@ -470,9 +470,13 @@ export function markdownForNativeRendering(markdown: string, fileLink: RegExp): 
 }
 
 // Native math rules differ from every JS tokenizer here, so never touch an image with a
-// `$` on both sides in its paragraph, escaped or not.
+// math delimiter (`$`, `\(`, `\[`) before it and a closing one after it in its paragraph.
 function mayBeInsideMath(before: string, after: string): boolean {
-  return before.includes("$") && after.includes("$");
+  return (
+    (before.includes("$") && after.includes("$")) ||
+    (before.includes("\\(") && after.includes("\\)")) ||
+    (before.includes("\\[") && after.includes("\\]"))
+  );
 }
 
 /**
@@ -515,7 +519,7 @@ export function markdownWithBlockImages(markdown: string): string {
       );
       if (onlyImages) {
         // Keep a task item's checkbox, which the paragraph's range includes.
-        const checkbox = /^\[[ xX]\][ \t]+/.exec(markdown.slice(paragraphStart, end));
+        const checkbox = /^\[[ xX]\]\s+/.exec(markdown.slice(paragraphStart, end));
         edits.push({
           start: paragraphStart + (checkbox?.[0].length ?? 0),
           end,

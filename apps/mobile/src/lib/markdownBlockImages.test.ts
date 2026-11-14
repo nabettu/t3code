@@ -88,6 +88,7 @@ describe("images written inside a line of text", () => {
     "- [x] ![a](a.png) ![b](b.png)",
     "> 1. [ ] ![a](a.png) ![b](b.png)",
     "&nbsp;![a](a.png) ![b](b.png)",
+    "- [x]\n  ![a](a.png) ![b](b.png)",
   ])("keep the rest of the Markdown as it was: %s", (markdown) => {
     const output = markdownWithBlockImages(markdown);
     expect(output).not.toBe(markdown);
@@ -105,6 +106,8 @@ describe("images written inside a line of text", () => {
       "$x\n![a](a.png)\ny$",
       "$ x ![a](a.png) y$",
       "$x ![a](a.png) y $",
+      "\\(x ![a](a.png) y\\)",
+      "\\[x ![a](a.png) y\\]",
       "![a](a.png)",
       "plain text",
     ])
