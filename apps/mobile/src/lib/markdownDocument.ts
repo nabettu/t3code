@@ -462,7 +462,77 @@ export function parseMarkdownDocument(markdown: string): Root {
 }
 
 export function markdownForNativeRendering(markdown: string, fileLink: RegExp): string {
-  return transformNativeMarkdown(markdownForNativeParsing(markdown), fileLink, true);
+  return transformNativeMarkdown(
+    markdownWithBlockImages(markdownForNativeParsing(markdown)),
+    fileLink,
+    true,
+  );
+}
+
+// Text that would open a block (list, heading, quote, fence, rule) once it starts a line.
+const BLOCK_START =
+  /^(?:([-+*>](?=[ \t]|$)|#{1,6}(?=[ \t]|$)|`{3,}|~{3,}|[-*_]{3,}|<(?=[A-Za-z/!?]))|(\d{1,9})([.)])(?=[ \t]|$))/;
+
+/**
+ * Native draws an image that follows text on its line as a 20pt glyph; only an image alone
+ * in its paragraph gets the full-width preview, so split images out of text paragraphs.
+ * Images inside links (badges), tables and headings stay inline.
+ */
+export function markdownWithBlockImages(markdown: string): string {
+  if (!markdown.includes("![")) return markdown;
+  const edits: MarkdownEdit[] = [];
+  const visit = (node: MarkdownNode) => {
+    if (node.type === "paragraph") {
+      const start = node.position?.start;
+      const end = node.position?.end.offset;
+      const images = node.children.filter(
+        (child) => child.type === "image" || child.type === "imageReference",
+      );
+      if (
+        images.length === 0 ||
+        node.children.length < 2 ||
+        start?.offset === undefined ||
+        end === undefined ||
+        images.some((image) => image.position?.start.offset === undefined)
+      )
+        return;
+      // Continuation lines repeat the container markers: `>` for quotes, spaces for list items.
+      const prefix = markdown
+        .slice(start.offset - (start.column - 1), start.offset)
+        .replace(/[^>\s]/g, " ");
+      const separator = `\n${prefix.trimEnd()}\n${prefix}`;
+      const parts: string[] = [];
+      const pushText = (text: string, startsParagraph: boolean) => {
+        const trimmed = text
+          .replace(/^[ \t]*(?:\r\n|\r|\n)[ \t>]*/, "")
+          .replace(/[ \t]*(?:\r\n|\r|\n)[ \t>]*$/, "")
+          .trim();
+        if (!trimmed) return;
+        parts.push(
+          startsParagraph
+            ? trimmed
+            : trimmed.replace(BLOCK_START, (_, mark: string | undefined, digits, dot) =>
+                mark ? `\\${mark}` : `${digits}\\${dot}`,
+              ),
+        );
+      };
+      let offset = start.offset;
+      for (const image of images) {
+        const imageStart = image.position!.start.offset!;
+        const imageEnd = image.position!.end.offset!;
+        pushText(markdown.slice(offset, imageStart), offset === start.offset);
+        parts.push(markdown.slice(imageStart, imageEnd));
+        offset = imageEnd;
+      }
+      pushText(markdown.slice(offset, end), false);
+      edits.push({ start: start.offset, end, content: parts.join(separator) });
+      return;
+    }
+    if (node.type === "table" || node.type === "heading") return;
+    if ("children" in node) node.children.forEach(visit);
+  };
+  visit(parser.parse(markdown));
+  return applyMarkdownEdits(markdown, edits);
 }
 
 /** Native media slots only cover standalone images; nested file embeds must become links. */
