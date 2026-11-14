@@ -469,14 +469,18 @@ export function markdownForNativeRendering(markdown: string, fileLink: RegExp): 
   );
 }
 
-// Text that would open a block (list, heading, quote, fence, rule) once it starts a line.
-const BLOCK_START =
-  /^(?:([-+*>](?=[ \t]|$)|#{1,6}(?=[ \t]|$)|`{3,}|~{3,}|[-*_]{3,}|<(?=[A-Za-z/!?]))|(\d{1,9})([.)])(?=[ \t]|$))/;
+// A segment moved to the start of a paragraph must still parse as that paragraph's text.
+function paragraphStartText(text: string): string {
+  const [first, ...rest] = parser.parse(text).children;
+  if (rest.length === 0 && first?.type === "paragraph" && first.position?.start.offset === 0)
+    return text;
+  return /^\d/.test(text) ? text.replace(/^(\d+)(\D)/, "$1\\$2") : `\\${text}`;
+}
 
 /**
  * Native draws an image that follows text on its line as a 20pt glyph; only an image alone
  * in its paragraph gets the full-width preview, so split images out of text paragraphs.
- * Images inside links (badges), tables and headings stay inline.
+ * Images inside links (badges), emphasis, tables, headings and math stay inline.
  */
 export function markdownWithBlockImages(markdown: string): string {
   if (!markdown.includes("![")) return markdown;
@@ -493,28 +497,25 @@ export function markdownWithBlockImages(markdown: string): string {
         node.children.length < 2 ||
         start?.offset === undefined ||
         end === undefined ||
-        images.some((image) => image.position?.start.offset === undefined)
+        images.some((image) => image.position?.start.offset === undefined) ||
+        // remark does not parse `$` math, which native may render.
+        markdown.slice(start.offset, end).includes("$")
       )
         return;
       // Continuation lines repeat the container markers: `>` for quotes, spaces for list items.
       const prefix = markdown
         .slice(start.offset - (start.column - 1), start.offset)
+        .replace(/\[[ xX]\][ \t]+$/, "")
         .replace(/[^>\s]/g, " ");
       const separator = `\n${prefix.trimEnd()}\n${prefix}`;
       const parts: string[] = [];
       const pushText = (text: string, startsParagraph: boolean) => {
         const trimmed = text
           .replace(/^[ \t]*(?:\r\n|\r|\n)[ \t>]*/, "")
-          .replace(/[ \t]*(?:\r\n|\r|\n)[ \t>]*$/, "")
+          // A backslash hard break would show as a literal `\` before the paragraph break.
+          .replace(/(?<!\\)((?:\\\\)*)\\?[ \t]*(?:\r\n|\r|\n)[ \t>]*$/, "$1")
           .trim();
-        if (!trimmed) return;
-        parts.push(
-          startsParagraph
-            ? trimmed
-            : trimmed.replace(BLOCK_START, (_, mark: string | undefined, digits, dot) =>
-                mark ? `\\${mark}` : `${digits}\\${dot}`,
-              ),
-        );
+        if (trimmed) parts.push(startsParagraph ? trimmed : paragraphStartText(trimmed));
       };
       let offset = start.offset;
       for (const image of images) {

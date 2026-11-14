@@ -47,7 +47,32 @@ describe("images written inside a line of text", () => {
     );
   });
 
-  it("leave linked badges, table cells, code and standalone images alone", () => {
+  it("indent task list continuations to the item's content, not past its checkbox", () => {
+    expect(markdownWithBlockImages("- [ ] one ![a](a.png)")).toBe("- [ ] one\n\n  ![a](a.png)");
+    expect(markdownWithBlockImages("> - [x] one ![a](a.png)")).toBe(
+      "> - [x] one\n>\n>   ![a](a.png)",
+    );
+  });
+
+  it("escape only text that would stop being a plain paragraph", () => {
+    expect(markdownWithBlockImages("see ![a](a.png) >quote")).toBe(
+      "see\n\n![a](a.png)\n\n\\>quote",
+    );
+    expect(markdownWithBlockImages("see ![a](a.png) [x]: https://example.com")).toBe(
+      "see\n\n![a](a.png)\n\n\\[x]: https://example.com",
+    );
+    for (const text of ["<https://example.com>", "***bold***", "```code```"])
+      expect(markdownWithBlockImages(`see ![a](a.png) ${text}`)).toBe(
+        `see\n\n![a](a.png)\n\n${text}`,
+      );
+  });
+
+  it("drop a hard-break backslash that would end up before the paragraph break", () => {
+    expect(markdownWithBlockImages("one\\\n![a](a.png)")).toBe("one\n\n![a](a.png)");
+  });
+
+  it("leave linked badges, table cells, code, math and standalone images alone", () => {
+    expect(markdownWithBlockImages("$x ![a](a.png) y$")).toBe("$x ![a](a.png) y$");
     for (const markdown of [
       "Build [![ci](https://example.com/ci.svg)](https://example.com) passing",
       "| a | b |\n| - | - |\n| x ![a](a.png) | y |",
