@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import { remarkKeepWindowsProsePaths } from "@t3tools/shared/markdownWindowsPaths";
 import { absoluteFilePathMatches, parseMarkdownFileLink } from "@t3tools/shared/markdownLinks";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
+import { markdownMathRanges } from "@t3tools/shared/markdownMath";
 
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkKeepWindowsProsePaths);
 export type MarkdownNode = Root | RootContent;
@@ -469,12 +470,6 @@ export function markdownForNativeRendering(markdown: string, fileLink: RegExp): 
   );
 }
 
-// Inside `$...$` on native, which renders math that remark does not parse.
-function insideInlineMath(paragraph: string, offset: number): boolean {
-  const dollars = (text: string) => text.match(/(?<!\\)\$/g)?.length ?? 0;
-  return dollars(paragraph.slice(0, offset)) % 2 === 1 && dollars(paragraph.slice(offset)) > 0;
-}
-
 /**
  * Native draws an image after text on its line as a 20pt glyph; only an image alone in its
  * paragraph gets the full-width preview, so move images below their paragraph. A zero-width
@@ -483,6 +478,8 @@ function insideInlineMath(paragraph: string, offset: number): boolean {
 export function markdownWithBlockImages(markdown: string): string {
   if (!markdown.includes("![")) return markdown;
   const edits: MarkdownEdit[] = [];
+  // remark without math sees image syntax inside formulas that native renders as math.
+  const math = markdownMathRanges(markdown);
   const visit = (node: MarkdownNode) => {
     if (node.type === "paragraph") {
       const start = node.position?.start;
@@ -490,13 +487,16 @@ export function markdownWithBlockImages(markdown: string): string {
       const paragraphStart = start?.offset;
       if (!start || paragraphStart === undefined || end === undefined || node.children.length < 2)
         return;
-      const source = markdown.slice(paragraphStart, end);
       const images = node.children.filter(
         (child) =>
           (child.type === "image" || child.type === "imageReference") &&
           child.position?.start.offset !== undefined &&
           child.position.end.offset !== undefined &&
-          !insideInlineMath(source, child.position.start.offset - paragraphStart),
+          !math.some(
+            (range) =>
+              range.start <= child.position!.start.offset! &&
+              child.position!.end.offset! <= range.end,
+          ),
       );
       if (images.length === 0) return;
       // Continuation lines repeat the container markers: `>` for quotes, spaces for list items.
@@ -512,7 +512,12 @@ export function markdownWithBlockImages(markdown: string): string {
         (child) => images.includes(child) || (child.type === "text" && child.value.trim() === ""),
       );
       if (onlyImages) {
-        edits.push({ start: paragraphStart, end, content: sources.join(separator) });
+        // Starts at the first image so a task item's checkbox stays.
+        edits.push({
+          start: images[0]!.position!.start.offset!,
+          end,
+          content: sources.join(separator),
+        });
         return;
       }
       for (const image of images)
