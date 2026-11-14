@@ -22,7 +22,9 @@ function outlineWithoutImages(markdown: string): string {
     if (node.type === "paragraph" && node.children.every(isImageOrBlank)) return "";
     // Adjacent text nodes merge once an image between them is gone.
     if (node.type === "text") return node.value.replace(/\u200b/g, "");
-    const value = "value" in node ? node.value : "";
+    const value =
+      ("value" in node ? node.value : "") +
+      (node.type === "listItem" ? `[${String(node.checked)}]` : "");
     const children = "children" in node ? node.children.map(outline).join("") : "";
     return `${node.type}(${value}${children})`;
   };
@@ -77,6 +79,8 @@ describe("images written inside a line of text", () => {
     "> quote ![a](a.png) **bold** [link](https://example.com)\n> more",
     "- > item ![a](a.png) after\n  > more",
     "one\\\n![a](a.png) two",
+    "- [x] ![a](a.png) ![b](b.png)",
+    "> 1. [ ] ![a](a.png) ![b](b.png)",
   ])("keep the rest of the Markdown as it was: %s", (markdown) => {
     const output = markdownWithBlockImages(markdown);
     expect(output).not.toBe(markdown);
@@ -89,6 +93,8 @@ describe("images written inside a line of text", () => {
       "| a | b |\n| - | - |\n| x ![a](a.png) | y |",
       "`text ![a](a.png)`",
       "$x ![a](a.png) y$",
+      "$$x ![a](a.png) y$$",
+      "`$` then $x ![a](a.png) y$",
       "![a](a.png)",
       "plain text",
     ])
@@ -97,6 +103,9 @@ describe("images written inside a line of text", () => {
 
   it("still move images next to a dollar sign that is not math", () => {
     expect(markdownWithBlockImages("Price $5 ![a](a.png)")).toBe("Price $5 &#8203;\n\n![a](a.png)");
+    expect(markdownWithBlockImages("Price $5 ![a](a.png) costs $6")).toBe(
+      "Price $5 &#8203; costs $6\n\n![a](a.png)",
+    );
   });
 
   it("apply to the chat's native rendering", () => {
