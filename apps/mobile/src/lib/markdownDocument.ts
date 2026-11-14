@@ -469,18 +469,16 @@ export function markdownForNativeRendering(markdown: string, fileLink: RegExp): 
   );
 }
 
-// A segment moved to the start of a paragraph must still parse as that paragraph's text.
-function paragraphStartText(text: string): string {
-  const [first, ...rest] = parser.parse(text).children;
-  if (rest.length === 0 && first?.type === "paragraph" && first.position?.start.offset === 0)
-    return text;
-  return /^\d/.test(text) ? text.replace(/^(\d+)(\D)/, "$1\\$2") : `\\${text}`;
+// Inside `$...$` on native, which renders math that remark does not parse.
+function insideInlineMath(paragraph: string, offset: number): boolean {
+  const dollars = (text: string) => text.match(/(?<!\\)\$/g)?.length ?? 0;
+  return dollars(paragraph.slice(0, offset)) % 2 === 1 && dollars(paragraph.slice(offset)) > 0;
 }
 
 /**
- * Native draws an image that follows text on its line as a 20pt glyph; only an image alone
- * in its paragraph gets the full-width preview, so split images out of text paragraphs.
- * Images inside links (badges), emphasis, tables, headings and math stay inline.
+ * Native draws an image after text on its line as a 20pt glyph; only an image alone in its
+ * paragraph gets the full-width preview, so move images below their paragraph. A zero-width
+ * space keeps each image's place so the text cannot turn into other syntax.
  */
 export function markdownWithBlockImages(markdown: string): string {
   if (!markdown.includes("![")) return markdown;
@@ -489,44 +487,41 @@ export function markdownWithBlockImages(markdown: string): string {
     if (node.type === "paragraph") {
       const start = node.position?.start;
       const end = node.position?.end.offset;
-      const images = node.children.filter(
-        (child) => child.type === "image" || child.type === "imageReference",
-      );
-      if (
-        images.length === 0 ||
-        node.children.length < 2 ||
-        start?.offset === undefined ||
-        end === undefined ||
-        images.some((image) => image.position?.start.offset === undefined) ||
-        // remark does not parse `$` math, which native may render.
-        markdown.slice(start.offset, end).includes("$")
-      )
+      const paragraphStart = start?.offset;
+      if (!start || paragraphStart === undefined || end === undefined || node.children.length < 2)
         return;
+      const source = markdown.slice(paragraphStart, end);
+      const images = node.children.filter(
+        (child) =>
+          (child.type === "image" || child.type === "imageReference") &&
+          child.position?.start.offset !== undefined &&
+          child.position.end.offset !== undefined &&
+          !insideInlineMath(source, child.position.start.offset - paragraphStart),
+      );
+      if (images.length === 0) return;
       // Continuation lines repeat the container markers: `>` for quotes, spaces for list items.
       const prefix = markdown
-        .slice(start.offset - (start.column - 1), start.offset)
+        .slice(paragraphStart - (start.column - 1), paragraphStart)
         .replace(/\[[ xX]\][ \t]+$/, "")
         .replace(/[^>\s]/g, " ");
       const separator = `\n${prefix.trimEnd()}\n${prefix}`;
-      const parts: string[] = [];
-      const pushText = (text: string, startsParagraph: boolean) => {
-        const trimmed = text
-          .replace(/^[ \t]*(?:\r\n|\r|\n)[ \t>]*/, "")
-          // A backslash hard break would show as a literal `\` before the paragraph break.
-          .replace(/(?<!\\)((?:\\\\)*)\\?[ \t]*(?:\r\n|\r|\n)[ \t>]*$/, "$1")
-          .trim();
-        if (trimmed) parts.push(startsParagraph ? trimmed : paragraphStartText(trimmed));
-      };
-      let offset = start.offset;
-      for (const image of images) {
-        const imageStart = image.position!.start.offset!;
-        const imageEnd = image.position!.end.offset!;
-        pushText(markdown.slice(offset, imageStart), offset === start.offset);
-        parts.push(markdown.slice(imageStart, imageEnd));
-        offset = imageEnd;
+      const sources = images.map((image) =>
+        markdown.slice(image.position!.start.offset, image.position!.end.offset),
+      );
+      const onlyImages = node.children.every(
+        (child) => images.includes(child) || (child.type === "text" && child.value.trim() === ""),
+      );
+      if (onlyImages) {
+        edits.push({ start: paragraphStart, end, content: sources.join(separator) });
+        return;
       }
-      pushText(markdown.slice(offset, end), false);
-      edits.push({ start: start.offset, end, content: parts.join(separator) });
+      for (const image of images)
+        edits.push({
+          start: image.position!.start.offset!,
+          end: image.position!.end.offset!,
+          content: "&#8203;",
+        });
+      edits.push({ start: end, end, content: `${separator}${sources.join(separator)}` });
       return;
     }
     if (node.type === "table" || node.type === "heading") return;
