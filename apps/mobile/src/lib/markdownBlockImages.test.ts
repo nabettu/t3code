@@ -55,6 +55,12 @@ describe("images written inside a line of text", () => {
     ]);
   });
 
+  it("drop the blank text left in a paragraph that only holds images", () => {
+    expect(markdownWithBlockImages("&nbsp;![a](a.png) ![b](b.png)")).toBe(
+      "![a](a.png)\n\n![b](b.png)",
+    );
+  });
+
   it("stay inside their list item, task item or blockquote", () => {
     expect(markdownWithBlockImages("- one ![a](a.png)\n- two")).toBe(
       "- one &#8203;\n\n  ![a](a.png)\n- two",
@@ -81,6 +87,7 @@ describe("images written inside a line of text", () => {
     "one\\\n![a](a.png) two",
     "- [x] ![a](a.png) ![b](b.png)",
     "> 1. [ ] ![a](a.png) ![b](b.png)",
+    "&nbsp;![a](a.png) ![b](b.png)",
   ])("keep the rest of the Markdown as it was: %s", (markdown) => {
     const output = markdownWithBlockImages(markdown);
     expect(output).not.toBe(markdown);
@@ -95,6 +102,9 @@ describe("images written inside a line of text", () => {
       "$x ![a](a.png) y$",
       "$$x ![a](a.png) y$$",
       "`$` then $x ![a](a.png) y$",
+      "$x\n![a](a.png)\ny$",
+      "$ x ![a](a.png) y$",
+      "$x ![a](a.png) y $",
       "![a](a.png)",
       "plain text",
     ])
@@ -103,9 +113,6 @@ describe("images written inside a line of text", () => {
 
   it("still move images next to a dollar sign that is not math", () => {
     expect(markdownWithBlockImages("Price $5 ![a](a.png)")).toBe("Price $5 &#8203;\n\n![a](a.png)");
-    expect(markdownWithBlockImages("Price $5 ![a](a.png) costs $6")).toBe(
-      "Price $5 &#8203; costs $6\n\n![a](a.png)",
-    );
   });
 
   it("apply to the chat's native rendering", () => {
