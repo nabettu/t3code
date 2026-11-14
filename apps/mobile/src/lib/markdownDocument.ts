@@ -5,7 +5,6 @@ import remarkGfm from "remark-gfm";
 import { remarkKeepWindowsProsePaths } from "@t3tools/shared/markdownWindowsPaths";
 import { absoluteFilePathMatches, parseMarkdownFileLink } from "@t3tools/shared/markdownLinks";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
-import { markdownMathRanges } from "@t3tools/shared/markdownMath";
 
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkKeepWindowsProsePaths);
 export type MarkdownNode = Root | RootContent;
@@ -470,6 +469,12 @@ export function markdownForNativeRendering(markdown: string, fileLink: RegExp): 
   );
 }
 
+// Native math rules differ from every JS tokenizer here, so never touch an image with a
+// `$` on both sides in its paragraph, escaped or not.
+function mayBeInsideMath(before: string, after: string): boolean {
+  return before.includes("$") && after.includes("$");
+}
+
 /**
  * Native draws an image after text on its line as a 20pt glyph; only an image alone in its
  * paragraph gets the full-width preview, so move images below their paragraph. A zero-width
@@ -478,8 +483,6 @@ export function markdownForNativeRendering(markdown: string, fileLink: RegExp): 
 export function markdownWithBlockImages(markdown: string): string {
   if (!markdown.includes("![")) return markdown;
   const edits: MarkdownEdit[] = [];
-  // remark without math sees image syntax inside formulas that native renders as math.
-  const math = markdownMathRanges(markdown);
   const visit = (node: MarkdownNode) => {
     if (node.type === "paragraph") {
       const start = node.position?.start;
@@ -492,10 +495,9 @@ export function markdownWithBlockImages(markdown: string): string {
           (child.type === "image" || child.type === "imageReference") &&
           child.position?.start.offset !== undefined &&
           child.position.end.offset !== undefined &&
-          !math.some(
-            (range) =>
-              range.start <= child.position!.start.offset! &&
-              child.position!.end.offset! <= range.end,
+          !mayBeInsideMath(
+            markdown.slice(paragraphStart, child.position.start.offset),
+            markdown.slice(child.position.end.offset, end),
           ),
       );
       if (images.length === 0) return;
@@ -512,9 +514,10 @@ export function markdownWithBlockImages(markdown: string): string {
         (child) => images.includes(child) || (child.type === "text" && child.value.trim() === ""),
       );
       if (onlyImages) {
-        // Starts at the first image so a task item's checkbox stays.
+        // Keep a task item's checkbox, which the paragraph's range includes.
+        const checkbox = /^\[[ xX]\][ \t]+/.exec(markdown.slice(paragraphStart, end));
         edits.push({
-          start: images[0]!.position!.start.offset!,
+          start: paragraphStart + (checkbox?.[0].length ?? 0),
           end,
           content: sources.join(separator),
         });
