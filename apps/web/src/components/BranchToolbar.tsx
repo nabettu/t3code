@@ -801,8 +801,8 @@ export const BranchToolbar = memo(function BranchToolbar({
         </div>
       ) : null}
 
-      {/* Local customization: started threads hide the branch; new ones still pick a base. */}
-      {showGitControls && !isServerThread ? (
+      {/* Local customization: started threads hide the branch; unstarted ones still pick a base. */}
+      {showGitControls && (!isServerThread || onActiveThreadBranchOverrideChange) ? (
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}
