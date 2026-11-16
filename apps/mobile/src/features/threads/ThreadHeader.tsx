@@ -6,11 +6,7 @@ import {
 } from "../layout/AdaptiveWorkspaceLayout";
 import type { ThreadInspectorMode } from "./thread-inspector-navigation";
 import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
-import {
-  threadTerminalMenu,
-  useThreadGitMenuDefinition,
-  type ThreadGitControlsProps,
-} from "./ThreadGitControls";
+import { threadTerminalMenu, type ThreadGitControlsProps } from "./ThreadGitControls";
 
 export function ThreadHeader(props: {
   readonly title: string;
@@ -25,7 +21,6 @@ export function ThreadHeader(props: {
   const goBack = useWorkspaceBackNavigation();
   const { toggleAuxiliaryPane, startNewTask } = useAdaptiveWorkspaceLayout();
   const { panes } = useWorkspacePaneState();
-  const gitMenu = useThreadGitMenuDefinition(props.gitControls);
   const terminalMenu = threadTerminalMenu(props.gitControls);
   const filesVisible = props.inspectorMode === "files" && panes.auxiliaryPaneVisible;
   const actions: AppBarAction[] = props.hasThreadCwd
@@ -40,7 +35,8 @@ export function ThreadHeader(props: {
         },
       ]
     : [];
-  const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
+  // Local customization: no Git (branch) menu in the chat header.
+  const menus = [terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
 
   return (
     <AppBar
