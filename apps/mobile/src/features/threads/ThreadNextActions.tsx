@@ -22,7 +22,7 @@ export function ThreadNextActions(props: {
     >
       {props.actions.map((action) => (
         <Pressable
-          key={action.label}
+          key={action.prompt}
           accessibilityRole="button"
           accessibilityLabel={action.label}
           accessibilityHint={`Sends “${action.prompt}”. Long press to edit it first.`}

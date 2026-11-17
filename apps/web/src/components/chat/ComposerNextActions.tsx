@@ -15,7 +15,7 @@ export function ComposerNextActions({
   readonly onEdit: (prompt: string) => void;
 }) {
   return actions.map((action) => (
-    <Group key={`${action.label}\u0000${action.prompt}`} aria-label={action.label}>
+    <Group key={action.prompt} aria-label={action.label}>
       <Tooltip>
         <TooltipTrigger
           render={

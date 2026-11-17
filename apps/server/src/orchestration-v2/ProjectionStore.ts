@@ -1,5 +1,10 @@
 import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwareness";
-import { applyOrchestrationV2ThreadVisit, pendingGuestMessageCount } from "@t3tools/contracts";
+import {
+  applyOrchestrationV2ThreadVisit,
+  latestOrchestrationV2TodoPlan,
+  orchestrationV2ShellTodoProgress,
+  pendingGuestMessageCount,
+} from "@t3tools/contracts";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
@@ -1850,10 +1855,8 @@ export function threadShellFromProjection(
     hasActionableProposedPlan: projection.plans.some(
       (plan) => plan.kind === "proposed_plan" && plan.status === "active",
     ),
-    todoProgress: todoProgressForShell(
-      projection.plans.findLast(
-        (plan) => plan.kind === "todo_list" && plan.status !== "superseded",
-      ),
+    todoProgress: orchestrationV2ShellTodoProgress(
+      latestOrchestrationV2TodoPlan(projection.plans, projection.runs),
     ),
     pendingBackgroundTasks: [...pendingBackgroundTasks],
     providerInstanceHistory: providerInstanceHistoryForShell({
@@ -1885,22 +1888,6 @@ export function threadShellFromProjection(
     lastTitleRegeneration: projection.thread.lastTitleRegeneration ?? null,
     limitRecovery: projection.thread.limitRecovery ?? null,
     deletedAt: projection.thread.deletedAt,
-  };
-}
-
-const SHELL_TODO_STEP_LIMIT = 20;
-const SHELL_TODO_TEXT_LIMIT = 160;
-
-function todoProgressForShell(
-  plan: OrchestrationV2PlanArtifact | undefined,
-): OrchestrationV2ShellTodoProgress | null {
-  if (plan?.kind !== "todo_list" || plan.steps.length === 0) return null;
-  return {
-    runId: plan.runId,
-    steps: plan.steps.slice(0, SHELL_TODO_STEP_LIMIT).map((step) => ({
-      text: step.text.slice(0, SHELL_TODO_TEXT_LIMIT),
-      status: step.status,
-    })),
   };
 }
 
@@ -8699,7 +8686,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           todoProgress:
             row.latest_todo_plan_json === null
               ? null
-              : todoProgressForShell(yield* decodePlanJson(row.latest_todo_plan_json)),
+              : orchestrationV2ShellTodoProgress(yield* decodePlanJson(row.latest_todo_plan_json)),
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({
             threadId: thread.id,

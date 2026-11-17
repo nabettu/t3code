@@ -2131,6 +2131,9 @@ const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
   for (const todoProgress of [(yield* store.getThreadShell(threadId))?.todoProgress, listedTodo]) {
     assert.deepEqual(todoProgress, {
       runId: activeRun.id,
+      completed: 1,
+      total: 2,
+      current: "active-run-todo next",
       steps: [
         { text: "active-run-todo done", status: "completed" },
         { text: "active-run-todo next", status: "running" },

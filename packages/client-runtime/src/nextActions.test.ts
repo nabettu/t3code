@@ -25,6 +25,14 @@ describe("splitNextActions", () => {
     ["no block", "Done.\n\n```ts\nconst a = 1;\n```"],
     ["a block followed by more text", "```next\n[]\n```\n\nMore text"],
     ["invalid JSON", block("[{label: 1}]")],
+    [
+      "an indented code example",
+      'Example:\n\n    ```next\n    [{"label":"A","prompt":"a"}]\n    ```\n',
+    ],
+    [
+      "an example inside a longer fence",
+      'Example:\n\n````md\n```next\n[{"label":"A","prompt":"a"}]\n````\n',
+    ],
   ])("leaves the message alone for %s", (_name, text) => {
     expect(splitNextActions(text)).toEqual({ markdown: text, actions: [] });
   });
@@ -34,6 +42,18 @@ describe("splitNextActions", () => {
       markdown: "Done.",
       actions: [],
     });
+  });
+
+  it("drops repeated prompts and shortens long labels", () => {
+    const actions = [
+      { label: "x".repeat(60), prompt: "a" },
+      { label: "Again", prompt: "a" },
+      { label: "B", prompt: "b" },
+    ];
+    expect(splitNextActions(block(JSON.stringify(actions))).actions).toEqual([
+      { label: `${"x".repeat(39)}…`, prompt: "a" },
+      { label: "B", prompt: "b" },
+    ]);
   });
 
   it("keeps at most three well-formed actions", () => {

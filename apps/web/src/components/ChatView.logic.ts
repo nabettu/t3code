@@ -44,6 +44,8 @@ import {
   type ThreadLinkedPullRequest,
   type RunId,
   type WorktreeSetupSnapshot,
+  latestOrchestrationV2TodoPlan,
+  orchestrationV2ShellTodoProgress,
 } from "@t3tools/contracts";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import * as DateTime from "effect/DateTime";
@@ -1480,10 +1482,8 @@ export function presentThreadShellFromProjection(
       hasActionableProposedPlan: projection.plans.some(
         (plan) => plan.kind === "proposed_plan" && plan.status === "active",
       ),
-      todoProgress: todoProgressFromPlan(
-        projection.plans.findLast(
-          (plan) => plan.kind === "todo_list" && plan.status !== "superseded",
-        ),
+      todoProgress: orchestrationV2ShellTodoProgress(
+        latestOrchestrationV2TodoPlan(projection.plans, projection.runs),
       ),
       providerInstanceHistory: [
         ...new Set(
@@ -1502,14 +1502,6 @@ export function presentThreadShellFromProjection(
     }),
     latestRun,
     runtime,
-  };
-}
-
-function todoProgressFromPlan(plan: ThreadStructure["plans"][number] | undefined) {
-  if (plan?.kind !== "todo_list" || plan.steps.length === 0) return null;
-  return {
-    runId: plan.runId,
-    steps: plan.steps.map((step) => ({ text: step.text, status: step.status })),
   };
 }
 

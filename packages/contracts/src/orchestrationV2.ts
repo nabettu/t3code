@@ -2191,9 +2191,13 @@ export const OrchestrationV2LatestVisibleMessageSummary = Schema.Struct({
 export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
-/** The latest todo list's steps, trimmed for list rows. */
+/** The latest todo list's counts, with its steps trimmed for list rows. */
 export const OrchestrationV2ShellTodoProgress = Schema.Struct({
   runId: Schema.NullOr(RunId),
+  completed: NonNegativeInt,
+  total: NonNegativeInt,
+  /** The running step, else the first pending one; null once every step is done. */
+  current: Schema.NullOr(Schema.String),
   steps: Schema.Array(
     Schema.Struct({
       text: Schema.String,
@@ -2202,6 +2206,44 @@ export const OrchestrationV2ShellTodoProgress = Schema.Struct({
   ),
 });
 export type OrchestrationV2ShellTodoProgress = typeof OrchestrationV2ShellTodoProgress.Type;
+
+const SHELL_TODO_STEP_LIMIT = 20;
+const SHELL_TODO_TEXT_LIMIT = 160;
+
+/** The live todo list of the most recent run that has one. */
+export function latestOrchestrationV2TodoPlan(
+  plans: ReadonlyArray<OrchestrationV2PlanArtifact>,
+  runs: ReadonlyArray<{ readonly id: RunId; readonly ordinal: number }>,
+): OrchestrationV2PlanArtifact | undefined {
+  const ordinals = new Map(runs.map((run) => [run.id, run.ordinal]));
+  const ordinalOf = (plan: OrchestrationV2PlanArtifact) =>
+    plan.runId === null ? -1 : (ordinals.get(plan.runId) ?? -1);
+  let latest: OrchestrationV2PlanArtifact | undefined;
+  for (const plan of plans) {
+    if (plan.kind !== "todo_list" || plan.status === "superseded") continue;
+    if (latest === undefined || ordinalOf(plan) >= ordinalOf(latest)) latest = plan;
+  }
+  return latest;
+}
+
+export function orchestrationV2ShellTodoProgress(
+  plan: OrchestrationV2PlanArtifact | undefined,
+): OrchestrationV2ShellTodoProgress | null {
+  if (plan?.kind !== "todo_list" || plan.steps.length === 0) return null;
+  const current =
+    plan.steps.find((step) => step.status === "running") ??
+    plan.steps.find((step) => step.status === "pending");
+  return {
+    runId: plan.runId,
+    completed: plan.steps.filter((step) => step.status === "completed").length,
+    total: plan.steps.length,
+    current: current === undefined ? null : current.text.slice(0, SHELL_TODO_TEXT_LIMIT),
+    steps: plan.steps.slice(0, SHELL_TODO_STEP_LIMIT).map((step) => ({
+      text: step.text.slice(0, SHELL_TODO_TEXT_LIMIT),
+      status: step.status,
+    })),
+  };
+}
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
   ...OrchestrationV2CreationFields,

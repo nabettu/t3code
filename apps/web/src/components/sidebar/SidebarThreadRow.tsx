@@ -352,7 +352,7 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
-        {todoProgress ? <SidebarTodoSteps steps={todoProgress.steps} /> : null}
+        {todoProgress ? <SidebarTodoSteps progress={todoProgress} /> : null}
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );

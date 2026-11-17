@@ -2,13 +2,15 @@ import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Schema from "effect/Schema";
 
-import { NodeId, RunAttemptId, TrimmedNonEmptyString } from "./index.ts";
+import { NodeId, PlanId, RunAttemptId, RunId, ThreadId, TrimmedNonEmptyString } from "./index.ts";
 import {
+  latestOrchestrationV2TodoPlan,
   latestProviderTurnForAttempt,
   OrchestrationV2CheckpointFileSummary,
   OrchestrationV2ProviderCapabilities,
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderThreadJson,
+  orchestrationV2ShellTodoProgress,
   OrchestrationV2RpcSchemas,
   OrchestrationV2Subagent,
   OrchestrationV2ThreadShellJson,
@@ -648,5 +650,59 @@ describe("latestProviderTurnForAttempt", () => {
     ];
     expect(latestProviderTurnForAttempt(turns, RunAttemptId.make("goal-attempt"))?.id).toBe("last");
     expect(latestProviderTurnForAttempt(turns, null)).toBeUndefined();
+  });
+});
+
+describe("todo progress for thread shells", () => {
+  const todoPlan = (
+    id: string,
+    runId: string,
+    statuses: ReadonlyArray<"pending" | "running" | "completed">,
+  ) => ({
+    id: PlanId.make(id),
+    threadId: ThreadId.make("thread:todo"),
+    runId: RunId.make(runId),
+    nodeId: NodeId.make("node:todo"),
+    status: "active" as const,
+    kind: "todo_list" as const,
+    steps: statuses.map((status, index) => ({
+      id: TrimmedNonEmptyString.make(`step-${index + 1}`),
+      text: TrimmedNonEmptyString.make(`Step ${index + 1}`),
+      status,
+    })),
+  });
+
+  it("picks the list of the latest run, whatever order the plans load in", () => {
+    const runs = [
+      { id: RunId.make("run:2"), ordinal: 2 },
+      { id: RunId.make("run:1"), ordinal: 1 },
+    ];
+    const latest = todoPlan("plan:a", "run:2", ["running"]);
+    const earlier = todoPlan("plan:b", "run:1", ["completed"]);
+    expect(latestOrchestrationV2TodoPlan([latest, earlier], runs)).toBe(latest);
+    expect(
+      latestOrchestrationV2TodoPlan(
+        [latest, { ...earlier, runId: RunId.make("run:2"), status: "superseded" }],
+        runs,
+      ),
+    ).toBe(latest);
+  });
+
+  it("counts every step even when the rows only carry the first twenty", () => {
+    const progress = orchestrationV2ShellTodoProgress(
+      todoPlan("plan:long", "run:1", [...Array<"completed">(20).fill("completed"), "running"]),
+    );
+    expect(progress).toMatchObject({ completed: 20, total: 21, current: "Step 21" });
+    expect(progress?.steps).toHaveLength(20);
+  });
+
+  it("names the first pending step when none runs, and none once all are done", () => {
+    expect(
+      orchestrationV2ShellTodoProgress(todoPlan("plan:p", "run:1", ["completed", "pending"]))
+        ?.current,
+    ).toBe("Step 2");
+    expect(
+      orchestrationV2ShellTodoProgress(todoPlan("plan:d", "run:1", ["completed", "completed"])),
+    ).toMatchObject({ completed: 2, total: 2, current: null });
   });
 });

@@ -46,13 +46,16 @@ const STEP_ICONS = {
   pending: { Icon: CircleDashedIcon, className: "text-muted-foreground" },
 } as const;
 
-export function SidebarTodoSteps({ steps }: { readonly steps: TodoProgressSummary["steps"] }) {
+export function SidebarTodoSteps({ progress }: { readonly progress: TodoProgressSummary }) {
+  const hidden = progress.total - progress.steps.length;
   return (
     <ol className="grid gap-1 border-t border-border/60 pt-2" aria-label="Todo steps">
-      {steps.map((step) => {
+      {progress.steps.map((step, index) => {
         const { Icon, className } = STEP_ICONS[step.status];
         return (
-          <li key={step.text} className="flex min-w-0 items-center gap-2">
+          // Step texts can repeat; the list is replaced whole, never reordered.
+          // oxlint-disable-next-line react/no-array-index-key
+          <li key={index} className="flex min-w-0 items-center gap-2">
             <Icon aria-label={step.status} className={cn("size-3 shrink-0", className)} />
             <span
               className={cn(
@@ -65,6 +68,7 @@ export function SidebarTodoSteps({ steps }: { readonly steps: TodoProgressSummar
           </li>
         );
       })}
+      {hidden > 0 ? <li className="ps-5 text-muted-foreground">+{hidden} more</li> : null}
     </ol>
   );
 }

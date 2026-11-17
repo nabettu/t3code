@@ -33,7 +33,14 @@ import {
 import { parseSideChatCommand } from "@t3tools/shared/composerTrigger";
 import { StackActions, useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { ReactNode } from "react";
-import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { I18nManager, Keyboard, Platform, View, type ViewStyle } from "react-native";
 import { composerImageGallery } from "../../lib/composerImageGallery";
 import { filePreviewGallery } from "../../lib/filePreviewGallery";
@@ -288,6 +295,8 @@ export interface ThreadComposerProps {
   readonly canSteerActiveTurn: boolean;
   readonly hidden: boolean;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
+  /** Sends a prompt through the composer's guards when its draft is empty; false when it did not. */
+  readonly sendPromptRef?: RefObject<((prompt: string) => Promise<boolean>) | null>;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftMedia: () => Promise<void>;
   readonly onPickDraftFiles: () => Promise<void>;
@@ -774,6 +783,26 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       projectTitle: props.environmentLabel ?? "T3 Code",
     });
   };
+
+  const sendPrompt = async (prompt: string) => {
+    await inputRef.current?.flushPendingInput();
+    const draft = getComposerDraftSnapshot(composerDraftKey);
+    if (
+      isSubmissionLocked ||
+      sendBlockedReason !== null ||
+      pendingPastedTextAttachmentCountRef.current > 0 ||
+      pendingNativeImagePasteCountRef.current > 0 ||
+      draft.text.trim().length > 0 ||
+      draft.attachments.length > 0 ||
+      (draft.context?.records.length ?? 0) > 0
+    ) {
+      return false;
+    }
+    onChangeDraftMessage(prompt);
+    await handleSend();
+    return true;
+  };
+  useImperativeHandle(props.sendPromptRef, () => sendPrompt);
 
   const lockedProviderInstanceId = props.canSwitchProvider
     ? undefined
