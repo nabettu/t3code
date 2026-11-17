@@ -107,6 +107,14 @@
       "types": "./src/markdownImages.ts",
       "default": "./src/markdownImages.ts"
     },
+    "./todo-progress": {
+      "types": "./src/todoProgress.ts",
+      "default": "./src/todoProgress.ts"
+    },
+    "./next-actions": {
+      "types": "./src/nextActions.ts",
+      "default": "./src/nextActions.ts"
+    },
     "./media-reference": {
       "types": "./src/mediaReference.ts",
       "default": "./src/mediaReference.ts"

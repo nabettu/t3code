@@ -2116,10 +2116,26 @@ const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
           nodeId: id,
           status: "active",
           kind: "todo_list",
-          steps: [],
+          steps: [
+            { id: `${name}:done`, text: `${name} done`, status: "completed" },
+            { id: `${name}:next`, text: `${name} next`, status: "running" },
+          ],
         },
       });
     }
+  }
+  // List rows show the newest run's todo list.
+  const listedTodo = (yield* store.getShellSnapshot()).threads.find(
+    (entry) => entry.id === threadId,
+  )?.todoProgress;
+  for (const todoProgress of [(yield* store.getThreadShell(threadId))?.todoProgress, listedTodo]) {
+    assert.deepEqual(todoProgress, {
+      runId: activeRun.id,
+      steps: [
+        { text: "active-run-todo done", status: "completed" },
+        { text: "active-run-todo next", status: "running" },
+      ],
+    });
   }
   // No row or node of this run is in the window.
   const settledCheckpointId = CheckpointId.make("checkpoint:settled-leaf-nodes:earlier-run");

@@ -26,6 +26,7 @@ import type {
   OrchestrationV2ExecutionNode,
   OrchestrationV2PlanArtifact,
   OrchestrationV2PendingRuntimeRequestSummary,
+  OrchestrationV2ShellTodoProgress,
   PlanId,
   OrchestrationV2ConversationMessage,
   OrchestrationV2ContextTransfer,
@@ -1147,6 +1148,7 @@ type ShellThreadRow = {
   readonly latest_user_message_at: string | null;
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
+  readonly latest_todo_plan_json: string | null;
 };
 
 type ShellRunRow = {
@@ -1848,6 +1850,11 @@ export function threadShellFromProjection(
     hasActionableProposedPlan: projection.plans.some(
       (plan) => plan.kind === "proposed_plan" && plan.status === "active",
     ),
+    todoProgress: todoProgressForShell(
+      projection.plans.findLast(
+        (plan) => plan.kind === "todo_list" && plan.status !== "superseded",
+      ),
+    ),
     pendingBackgroundTasks: [...pendingBackgroundTasks],
     providerInstanceHistory: providerInstanceHistoryForShell({
       threadId: projection.thread.id,
@@ -1878,6 +1885,22 @@ export function threadShellFromProjection(
     lastTitleRegeneration: projection.thread.lastTitleRegeneration ?? null,
     limitRecovery: projection.thread.limitRecovery ?? null,
     deletedAt: projection.thread.deletedAt,
+  };
+}
+
+const SHELL_TODO_STEP_LIMIT = 20;
+const SHELL_TODO_TEXT_LIMIT = 160;
+
+function todoProgressForShell(
+  plan: OrchestrationV2PlanArtifact | undefined,
+): OrchestrationV2ShellTodoProgress | null {
+  if (plan?.kind !== "todo_list" || plan.steps.length === 0) return null;
+  return {
+    runId: plan.runId,
+    steps: plan.steps.slice(0, SHELL_TODO_STEP_LIMIT).map((step) => ({
+      text: step.text.slice(0, SHELL_TODO_TEXT_LIMIT),
+      status: step.status,
+    })),
   };
 }
 
@@ -1978,6 +2001,7 @@ type ShellThreadState = {
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
+  readonly todoProgress: OrchestrationV2ShellTodoProgress | null;
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
@@ -2151,6 +2175,7 @@ function shellFromState(input: {
     latestUserMessageAt: input.state.latestUserMessageAt,
     latestUserAuthoredMessageAt: input.state.latestUserAuthoredMessageAt,
     hasActionableProposedPlan: input.state.hasActionableProposedPlan,
+    todoProgress: input.state.todoProgress,
     pendingBackgroundTasks: input.state.pendingBackgroundTasks,
     providerInstanceHistory: input.state.providerInstanceHistory,
     goal: input.state.goal,
@@ -8010,7 +8035,17 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 WHERE plan.thread_id = t.thread_id
                   AND plan.kind = 'proposed_plan'
                   AND plan.status = 'active'
-              ) AS has_actionable_proposed_plan
+              ) AS has_actionable_proposed_plan,
+              (
+                SELECT plan.payload_json
+                FROM orchestration_v2_projection_plans plan
+                LEFT JOIN orchestration_v2_projection_runs owner ON owner.run_id = plan.run_id
+                WHERE plan.thread_id = t.thread_id
+                  AND plan.kind = 'todo_list'
+                  AND plan.status <> 'superseded'
+                ORDER BY owner.ordinal DESC, plan.rowid DESC
+                LIMIT 1
+              ) AS latest_todo_plan_json
             FROM orchestration_v2_projection_threads t
             LEFT JOIN orchestration_v2_projection_runs active ON active.run_id = (
               SELECT r.run_id
@@ -8661,6 +8696,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               : DateTime.makeUnsafe(row.latest_user_message_at),
           latestUserAuthoredMessageAt,
           hasActionableProposedPlan: row.has_actionable_proposed_plan === 1,
+          todoProgress:
+            row.latest_todo_plan_json === null
+              ? null
+              : todoProgressForShell(yield* decodePlanJson(row.latest_todo_plan_json)),
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({
             threadId: thread.id,

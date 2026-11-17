@@ -2191,6 +2191,18 @@ export const OrchestrationV2LatestVisibleMessageSummary = Schema.Struct({
 export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
+/** The latest todo list's steps, trimmed for list rows. */
+export const OrchestrationV2ShellTodoProgress = Schema.Struct({
+  runId: Schema.NullOr(RunId),
+  steps: Schema.Array(
+    Schema.Struct({
+      text: Schema.String,
+      status: OrchestrationV2PlanStep.fields.status,
+    }),
+  ),
+});
+export type OrchestrationV2ShellTodoProgress = typeof OrchestrationV2ShellTodoProgress.Type;
+
 export const OrchestrationV2ThreadShell = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -2237,6 +2249,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   /** Excludes wakes and agent messages that advance latestUserMessageAt through the user role. */
   latestUserAuthoredMessageAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   hasActionableProposedPlan: Schema.Boolean,
+  /** Absent from older servers. */
+  todoProgress: Schema.optional(Schema.NullOr(OrchestrationV2ShellTodoProgress)),
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestrationV2PendingBackgroundTask)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
