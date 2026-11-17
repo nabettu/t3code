@@ -2,6 +2,7 @@ import type { ProjectThreadAwarenessV2Input } from "@t3tools/shared/agentAwarene
 import {
   applyOrchestrationV2ThreadVisit,
   latestOrchestrationV2TodoPlan,
+  orchestrationV2ShellChildWork,
   orchestrationV2ShellTodoProgress,
   pendingGuestMessageCount,
 } from "@t3tools/contracts";
@@ -31,6 +32,7 @@ import type {
   OrchestrationV2ExecutionNode,
   OrchestrationV2PlanArtifact,
   OrchestrationV2PendingRuntimeRequestSummary,
+  OrchestrationV2ShellChildWork,
   OrchestrationV2ShellTodoProgress,
   PlanId,
   OrchestrationV2ConversationMessage,
@@ -1154,6 +1156,7 @@ type ShellThreadRow = {
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
   readonly latest_todo_plan_json: string | null;
+  readonly latest_subagents_json: string | null;
 };
 
 type ShellRunRow = {
@@ -1338,6 +1341,19 @@ const decodeRuntimeRequestPayload = Schema.decodeUnknownEffect(
 );
 const decodeMessagePayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2ConversationMessageJsonSchema),
+);
+const decodeShellSubagentsJson = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Array(
+      Schema.Struct({
+        runId: Schema.NullOr(RunId),
+        status: Schema.String,
+        title: Schema.NullOr(Schema.String),
+        prompt: Schema.NullOr(Schema.String),
+        childThreadId: Schema.NullOr(ThreadId),
+      }),
+    ),
+  ),
 );
 const decodePlanJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2PlanArtifactSchema),
@@ -1858,6 +1874,7 @@ export function threadShellFromProjection(
     todoProgress: orchestrationV2ShellTodoProgress(
       latestOrchestrationV2TodoPlan(projection.plans, projection.runs),
     ),
+    childWork: orchestrationV2ShellChildWork(projection.subagents, projection.runs),
     pendingBackgroundTasks: [...pendingBackgroundTasks],
     providerInstanceHistory: providerInstanceHistoryForShell({
       threadId: projection.thread.id,
@@ -1989,6 +2006,7 @@ type ShellThreadState = {
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
   readonly todoProgress: OrchestrationV2ShellTodoProgress | null;
+  readonly childWork: OrchestrationV2ShellChildWork | null;
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
@@ -2163,6 +2181,7 @@ function shellFromState(input: {
     latestUserAuthoredMessageAt: input.state.latestUserAuthoredMessageAt,
     hasActionableProposedPlan: input.state.hasActionableProposedPlan,
     todoProgress: input.state.todoProgress,
+    childWork: input.state.childWork,
     pendingBackgroundTasks: input.state.pendingBackgroundTasks,
     providerInstanceHistory: input.state.providerInstanceHistory,
     goal: input.state.goal,
@@ -8032,7 +8051,27 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   AND plan.status <> 'superseded'
                 ORDER BY owner.ordinal DESC, plan.rowid DESC
                 LIMIT 1
-              ) AS latest_todo_plan_json
+              ) AS latest_todo_plan_json,
+              (
+                SELECT json_group_array(json_object(
+                  'runId', sub.run_id,
+                  'status', sub.status,
+                  'title', json_extract(sub.payload_json, '$.title'),
+                  'prompt', substr(json_extract(sub.payload_json, '$.prompt'), 1, 160),
+                  'childThreadId', sub.child_thread_id
+                ))
+                FROM (
+                  SELECT latest.run_id
+                  FROM orchestration_v2_projection_subagents latest
+                  LEFT JOIN orchestration_v2_projection_runs owner ON owner.run_id = latest.run_id
+                  WHERE latest.thread_id = t.thread_id
+                    AND (owner.status IS NULL OR owner.status <> 'rolled_back')
+                  ORDER BY owner.ordinal DESC, latest.rowid DESC
+                  LIMIT 1
+                ) newest
+                JOIN orchestration_v2_projection_subagents sub
+                  ON sub.thread_id = t.thread_id AND sub.run_id IS newest.run_id
+              ) AS latest_subagents_json
             FROM orchestration_v2_projection_threads t
             LEFT JOIN orchestration_v2_projection_runs active ON active.run_id = (
               SELECT r.run_id
@@ -8687,6 +8726,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             row.latest_todo_plan_json === null
               ? null
               : orchestrationV2ShellTodoProgress(yield* decodePlanJson(row.latest_todo_plan_json)),
+          childWork:
+            row.latest_subagents_json === null
+              ? null
+              : orchestrationV2ShellChildWork(
+                  yield* decodeShellSubagentsJson(row.latest_subagents_json),
+                  [],
+                ),
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({
             threadId: thread.id,

@@ -10,6 +10,7 @@ import {
   OrchestrationV2ProviderCapabilities,
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderThreadJson,
+  orchestrationV2ShellChildWork,
   orchestrationV2ShellTodoProgress,
   OrchestrationV2RpcSchemas,
   OrchestrationV2Subagent,
@@ -704,5 +705,61 @@ describe("todo progress for thread shells", () => {
     expect(
       orchestrationV2ShellTodoProgress(todoPlan("plan:d", "run:1", ["completed", "completed"])),
     ).toMatchObject({ completed: 2, total: 2, current: null });
+  });
+});
+
+describe("child work for thread shells", () => {
+  const subagent = (runId: string, status: string, title: string | null = null) => ({
+    runId: RunId.make(runId),
+    status,
+    title,
+    prompt: "Do the thing",
+    childThreadId: null,
+  });
+  const runs = [
+    { id: RunId.make("run:2"), ordinal: 2 },
+    { id: RunId.make("run:1"), ordinal: 1 },
+  ];
+
+  it("counts the subagents of the latest run that started any", () => {
+    expect(
+      orchestrationV2ShellChildWork(
+        [
+          subagent("run:2", "completed", "Search"),
+          subagent("run:1", "running"),
+          subagent("run:2", "running"),
+          subagent("run:2", "failed", "Lint"),
+        ],
+        runs,
+      ),
+    ).toEqual({
+      runId: RunId.make("run:2"),
+      finished: 2,
+      total: 3,
+      children: [
+        { threadId: null, title: "Search", finished: true },
+        { threadId: null, title: "Do the thing", finished: false },
+        { threadId: null, title: "Lint", finished: true },
+      ],
+    });
+    expect(orchestrationV2ShellChildWork([], runs)).toBeNull();
+  });
+
+  it("skips the tasks of a rolled-back run", () => {
+    expect(
+      orchestrationV2ShellChildWork(
+        [subagent("run:2", "completed"), subagent("run:1", "running")],
+        [{ ...runs[0]!, status: "rolled_back" }, runs[1]!],
+      ),
+    ).toMatchObject({ runId: RunId.make("run:1"), finished: 0, total: 1 });
+  });
+
+  it("counts every subagent even when the rows only carry the first twenty", () => {
+    const work = orchestrationV2ShellChildWork(
+      Array.from({ length: 25 }, () => subagent("run:1", "completed")),
+      runs,
+    );
+    expect(work).toMatchObject({ finished: 25, total: 25 });
+    expect(work?.children).toHaveLength(20);
   });
 });

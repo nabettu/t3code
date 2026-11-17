@@ -2337,6 +2337,18 @@ const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
   }
   yield* sql`INSERT INTO orchestration_v2_projection_provider_session_bindings
     (provider_session_id, thread_id) VALUES (${sharedSessionId}, ${threadId})`;
+  // List rows count the tasks of the newest run that started any.
+  const listedChildWork = (yield* store.getShellSnapshot()).threads.find(
+    (entry) => entry.id === threadId,
+  )?.childWork;
+  for (const childWork of [(yield* store.getThreadShell(threadId))?.childWork, listedChildWork]) {
+    assert.deepEqual(childWork, {
+      runId: activeRun.id,
+      finished: 1,
+      total: 1,
+      children: [{ threadId: null, title: "active-run-delivered", finished: true }],
+    });
+  }
   // A command drops the node and the provider thread of each task it drops. The provider thread
   // in the shared session stays: detaching that session probes it for background work.
   const kept = ["active-run-delivered", "claimed", "no-delivery", "pending-delivery", "running"];

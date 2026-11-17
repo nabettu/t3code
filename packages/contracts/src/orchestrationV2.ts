@@ -2207,6 +2207,21 @@ export const OrchestrationV2ShellTodoProgress = Schema.Struct({
 });
 export type OrchestrationV2ShellTodoProgress = typeof OrchestrationV2ShellTodoProgress.Type;
 
+/** The subagents of the latest run that started any, trimmed for list rows. */
+export const OrchestrationV2ShellChildWork = Schema.Struct({
+  runId: Schema.NullOr(RunId),
+  finished: NonNegativeInt,
+  total: NonNegativeInt,
+  children: Schema.Array(
+    Schema.Struct({
+      threadId: Schema.NullOr(ThreadId),
+      title: Schema.String,
+      finished: Schema.Boolean,
+    }),
+  ),
+});
+export type OrchestrationV2ShellChildWork = typeof OrchestrationV2ShellChildWork.Type;
+
 const SHELL_TODO_STEP_LIMIT = 20;
 const SHELL_TODO_TEXT_LIMIT = 160;
 
@@ -2242,6 +2257,44 @@ export function orchestrationV2ShellTodoProgress(
       text: step.text.slice(0, SHELL_TODO_TEXT_LIMIT),
       status: step.status,
     })),
+  };
+}
+
+const SHELL_CHILD_WORK_LIMIT = 20;
+const FINISHED_SUBAGENT_STATUSES = new Set(["completed", "failed", "cancelled", "interrupted"]);
+
+export function orchestrationV2ShellChildWork(
+  subagents: ReadonlyArray<{
+    readonly runId: RunId | null;
+    readonly status: string;
+    readonly title: string | null;
+    readonly prompt?: string | null;
+    readonly childThreadId: ThreadId | null;
+  }>,
+  runs: ReadonlyArray<{ readonly id: RunId; readonly ordinal: number; readonly status?: string }>,
+): OrchestrationV2ShellChildWork | null {
+  const rolledBack = new Set(runs.flatMap((run) => (run.status === "rolled_back" ? [run.id] : [])));
+  const kept = subagents.filter(
+    (subagent) => subagent.runId === null || !rolledBack.has(subagent.runId),
+  );
+  if (kept.length === 0) return null;
+  const ordinals = new Map(runs.map((run) => [run.id, run.ordinal]));
+  const ordinalOf = (runId: RunId | null) => (runId === null ? -1 : (ordinals.get(runId) ?? -1));
+  let runId = kept[0]!.runId;
+  for (const subagent of kept) {
+    if (ordinalOf(subagent.runId) >= ordinalOf(runId)) runId = subagent.runId;
+  }
+  const latest = kept.filter((subagent) => subagent.runId === runId);
+  const children = latest.map((subagent) => ({
+    threadId: subagent.childThreadId,
+    title: (subagent.title ?? subagent.prompt ?? "Subagent").slice(0, SHELL_TODO_TEXT_LIMIT),
+    finished: FINISHED_SUBAGENT_STATUSES.has(subagent.status),
+  }));
+  return {
+    runId,
+    finished: children.filter((child) => child.finished).length,
+    total: children.length,
+    children: children.slice(0, SHELL_CHILD_WORK_LIMIT),
   };
 }
 
@@ -2293,6 +2346,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   hasActionableProposedPlan: Schema.Boolean,
   /** Absent from older servers. */
   todoProgress: Schema.optional(Schema.NullOr(OrchestrationV2ShellTodoProgress)),
+  childWork: Schema.optional(Schema.NullOr(OrchestrationV2ShellChildWork)),
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestrationV2PendingBackgroundTask)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),

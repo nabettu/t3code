@@ -174,6 +174,10 @@ export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   );
 }
 
+export function useChildWorkProgress(ref: ScopedThreadRef) {
+  return useAtomValue(environmentThreadShells.childWorkProgressAtom(ref));
+}
+
 export function useThreadProjection(ref: ScopedThreadRef | null): EnvironmentThread | null {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_PROJECTION_ATOM : environmentThreadDetails.threadAtom(ref),

@@ -45,6 +45,7 @@ import {
   type RunId,
   type WorktreeSetupSnapshot,
   latestOrchestrationV2TodoPlan,
+  orchestrationV2ShellChildWork,
   orchestrationV2ShellTodoProgress,
 } from "@t3tools/contracts";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
@@ -1485,6 +1486,7 @@ export function presentThreadShellFromProjection(
       todoProgress: orchestrationV2ShellTodoProgress(
         latestOrchestrationV2TodoPlan(projection.plans, projection.runs),
       ),
+      childWork: orchestrationV2ShellChildWork(projection.subagents, projection.runs),
       providerInstanceHistory: [
         ...new Set(
           projection.providerThreads

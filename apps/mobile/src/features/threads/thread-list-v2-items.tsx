@@ -11,6 +11,7 @@ import {
 import { RowPressable } from "../../components/ui/RowPressable";
 import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { useChildWorkProgress } from "../../state/entities";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -764,6 +765,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
 
   const rawStatus = resolveThreadListV2Status(thread);
   const todoProgress = todoProgressSummary(thread);
+  const childWork = useChildWorkProgress({
+    environmentId: thread.environmentId,
+    threadId: thread.id,
+  });
   const status = resolveThreadListV2RowStatus(thread);
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
@@ -788,10 +793,17 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     hasQueuedMessages: props.hasQueuedMessages === true,
     regeneratingTitle: isRegeneratingTitle,
   });
-  const rowAccessibilityLabel =
+  const rowAccessibilityLabel = [
+    baseAccessibilityLabel,
     todoProgress && variant === "card"
-      ? `${baseAccessibilityLabel}, ${todoProgress.completed} of ${todoProgress.total} steps done`
-      : baseAccessibilityLabel;
+      ? `${todoProgress.completed} of ${todoProgress.total} steps done`
+      : null,
+    childWork && variant === "card"
+      ? `${childWork.finished} of ${childWork.total} subagents done`
+      : null,
+  ]
+    .filter((part) => part !== null)
+    .join(", ");
 
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const markThreadUnread = useAtomCommand(threadEnvironment.markUnread, { reportFailure: false });
@@ -1343,6 +1355,21 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               {todoProgress.current}
             </Text>
           ) : null}
+        </View>
+      ) : null}
+      {childWork ? (
+        <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
+          <Text
+            className={cn(
+              "text-xs tabular-nums",
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : rowAppearance.tertiaryForegroundClassName,
+            )}
+            style={{ fontFamily: MONO_FONT }}
+          >
+            Subagents {childWork.finished}/{childWork.total}
+          </Text>
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>

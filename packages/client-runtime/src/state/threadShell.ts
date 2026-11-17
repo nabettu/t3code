@@ -14,6 +14,11 @@ import {
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
+import {
+  childWorkProgress,
+  sameChildWorkProgress,
+  type ChildWorkProgress,
+} from "../childWorkProgress.ts";
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
 import { hiddenThreadKeys, NO_HIDDEN_THREADS } from "./threadTagFilter.ts";
@@ -549,6 +554,19 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-child-thread-inputs:${key}`));
   });
 
+  // A parent row's subagent progress; streaming updates that leave it unchanged keep the old value.
+  const childWorkProgressAtomFamily = Atom.family((key: string) => {
+    const ref = parseThreadKey(key);
+    let previous: ChildWorkProgress | null = null;
+    return Atom.make((get) => {
+      const index = get(environmentThreadIndexAtom(ref.environmentId));
+      const next = childWorkProgress(index.get(ref.threadId) ?? null, index);
+      if (sameChildWorkProgress(previous, next)) return previous;
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`environment-child-work-progress:${key}`));
+  });
+
   // A parent's side chats. Rows read only ids, titles and whether one needs the user, so
   // streaming updates keep the old array.
   const sideChatsAtomFamily = Atom.family((key: string) => {
@@ -785,5 +803,6 @@ export function createEnvironmentThreadShellAtoms(input: {
     quietThreadShellAtom: (ref: ScopedThreadRef) => quietThreadShellAtomFamily(threadKey(ref)),
     childThreadInputsAtom: (ref: ScopedThreadRef) => childThreadInputsAtomFamily(threadKey(ref)),
     sideChatsAtom: (ref: ScopedThreadRef) => sideChatsAtomFamily(threadKey(ref)),
+    childWorkProgressAtom: (ref: ScopedThreadRef) => childWorkProgressAtomFamily(threadKey(ref)),
   };
 }
