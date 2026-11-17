@@ -1336,7 +1336,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             {todoProgress.completed}/{todoProgress.total}
           </Text>
-          <View className="h-1 w-10 overflow-hidden rounded-full bg-subtle">
+          <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
             <View
               className="h-full rounded-full bg-primary"
               style={{ width: `${(todoProgress.completed / todoProgress.total) * 100}%` }}
@@ -1370,7 +1370,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             Subagents {childWork.finished}/{childWork.total}
           </Text>
-          <View className="h-1 w-10 overflow-hidden rounded-full bg-subtle">
+          <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
             <View
               className="h-full rounded-full bg-primary"
               style={{ width: `${(childWork.finished / childWork.total) * 100}%` }}
