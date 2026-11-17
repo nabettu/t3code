@@ -1359,6 +1359,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       ) : null}
       {childWork ? (
         <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
+          <SymbolView
+            name="robot"
+            size={12}
+            tintColorClassName={
+              selected
+                ? selectedThreadRowColors.iconTintClassName
+                : rowAppearance.mutedIconTintClassName
+            }
+            type="monochrome"
+          />
           <Text
             className={cn(
               "text-xs tabular-nums",
@@ -1368,7 +1378,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             )}
             style={{ fontFamily: MONO_FONT }}
           >
-            Subagents {childWork.finished}/{childWork.total}
+            {childWork.finished}/{childWork.total}
           </Text>
           <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
             <View
