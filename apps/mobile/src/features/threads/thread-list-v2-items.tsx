@@ -1325,6 +1325,16 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       ) : null}
       {todoProgress ? (
         <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
+          <SymbolView
+            name="list.number"
+            size={12}
+            tintColorClassName={
+              selected
+                ? selectedThreadRowColors.iconTintClassName
+                : rowAppearance.mutedIconTintClassName
+            }
+            type="monochrome"
+          />
           <Text
             className={cn(
               "text-xs tabular-nums",
@@ -1342,19 +1352,6 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               style={{ width: `${(todoProgress.completed / todoProgress.total) * 100}%` }}
             />
           </View>
-          {todoProgress.current ? (
-            <Text
-              className={cn(
-                "flex-1 text-xs",
-                selected
-                  ? selectedThreadRowColors.mutedForegroundClassName
-                  : rowAppearance.tertiaryForegroundClassName,
-              )}
-              numberOfLines={1}
-            >
-              {todoProgress.current}
-            </Text>
-          ) : null}
         </View>
       ) : null}
       {childWork ? (
