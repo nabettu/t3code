@@ -295,8 +295,10 @@ export interface ThreadComposerProps {
   readonly canSteerActiveTurn: boolean;
   readonly hidden: boolean;
   readonly editorRef?: RefObject<ComposerEditorHandle | null>;
-  /** Sends a prompt through the composer's guards when its draft is empty; false when it did not. */
-  readonly sendPromptRef?: RefObject<((prompt: string) => Promise<boolean>) | null>;
+  /** Sends a suggested prompt, or adds it to the draft for editing; does nothing while input is locked. */
+  readonly nextActionRef?: RefObject<
+    ((prompt: string, intent: "send" | "edit") => Promise<void>) | null
+  >;
   readonly onChangeDraftMessage: (value: string) => void;
   readonly onPickDraftMedia: () => Promise<void>;
   readonly onPickDraftFiles: () => Promise<void>;
@@ -784,25 +786,35 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     });
   };
 
-  const sendPrompt = async (prompt: string) => {
+  const takeNextAction = async (prompt: string, intent: "send" | "edit") => {
+    if (isSubmissionLocked) return;
     await inputRef.current?.flushPendingInput();
     const draft = getComposerDraftSnapshot(composerDraftKey);
+    const draftEmpty =
+      draft.text.trim().length === 0 &&
+      draft.attachments.length === 0 &&
+      (draft.context?.records.length ?? 0) === 0;
     if (
-      isSubmissionLocked ||
-      sendBlockedReason !== null ||
-      pendingPastedTextAttachmentCountRef.current > 0 ||
-      pendingNativeImagePasteCountRef.current > 0 ||
-      draft.text.trim().length > 0 ||
-      draft.attachments.length > 0 ||
-      (draft.context?.records.length ?? 0) > 0
+      intent === "send" &&
+      draftEmpty &&
+      sendBlockedReason === null &&
+      pendingPastedTextAttachmentCountRef.current === 0 &&
+      pendingNativeImagePasteCountRef.current === 0
     ) {
-      return false;
+      onChangeDraftMessage(prompt);
+      await handleSend();
+      return;
     }
-    onChangeDraftMessage(prompt);
-    await handleSend();
-    return true;
+    // Never replace what the user already typed; the suggestion joins it for editing.
+    const nextDraft =
+      draft.text.trim().length === 0 ? prompt : `${draft.text.trimEnd()}\n\n${prompt}`;
+    onChangeDraftMessage(nextDraft);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelection({ start: nextDraft.length, end: nextDraft.length });
+    });
   };
-  useImperativeHandle(props.sendPromptRef, () => sendPrompt);
+  useImperativeHandle(props.nextActionRef, () => takeNextAction);
 
   const lockedProviderInstanceId = props.canSwitchProvider
     ? undefined

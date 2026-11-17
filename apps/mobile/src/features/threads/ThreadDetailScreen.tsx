@@ -516,7 +516,9 @@ function ThreadDetailBody(
   const agentsSegment = resolveSubagentPillSegment(turnSubagents);
   const defaultComposerEditorRef = useRef<ComposerEditorHandle>(null);
   const composerEditorRef = props.draftMode?.editorRef ?? defaultComposerEditorRef;
-  const composerSendPromptRef = useRef<((prompt: string) => Promise<boolean>) | null>(null);
+  const composerNextActionRef = useRef<
+    ((prompt: string, intent: "send" | "edit") => Promise<void>) | null
+  >(null);
   const isProviderSubagent = isProviderNativeSubagentThread(props.selectedThread.source);
   const editingRunId = props.queuedRunEdit?.runId ?? null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the composer editor on the next animation frame when a queued run edit starts
@@ -1420,22 +1422,8 @@ function ThreadDetailBody(
             props.activePendingApprovals.length > 0 || props.activePendingUserInput !== null,
         });
 
-  const handleNextAction = async (action: NextAction, intent: "send" | "edit") => {
-    if (props.composerDraftKey === null) return;
-    if (intent === "send" && (await composerSendPromptRef.current?.(action.prompt)) === true)
-      return;
-    await composerEditorRef.current?.flushPendingInput();
-    const draft = getComposerDraftSnapshot(props.composerDraftKey);
-    // Never replace what the user already typed; the suggestion joins it for editing.
-    const nextDraft =
-      draft.text.trim().length === 0
-        ? action.prompt
-        : `${draft.text.trimEnd()}\n\n${action.prompt}`;
-    props.onChangeDraftMessage(nextDraft);
-    requestAnimationFrame(() => {
-      composerEditorRef.current?.focus();
-      composerEditorRef.current?.setSelection({ start: nextDraft.length, end: nextDraft.length });
-    });
+  const handleNextAction = (action: NextAction, intent: "send" | "edit") => {
+    void composerNextActionRef.current?.(action.prompt, intent);
   };
 
   const handleScrollToEnd = () => {
@@ -1805,8 +1793,8 @@ function ThreadDetailBody(
                     ) : null}
                     <ThreadNextActions
                       actions={nextActions}
-                      onSend={(action) => void handleNextAction(action, "send")}
-                      onEdit={(action) => void handleNextAction(action, "edit")}
+                      onSend={(action) => handleNextAction(action, "send")}
+                      onEdit={(action) => handleNextAction(action, "edit")}
                     />
                     {props.activePendingApproval || props.activePendingUserInput ? (
                       <Animated.View
@@ -1910,7 +1898,7 @@ function ThreadDetailBody(
                         canOperateThread={props.canOperateThread}
                         reportedModelSelection={reportedModelSelection}
                         editorRef={composerEditorRef}
-                        sendPromptRef={composerSendPromptRef}
+                        nextActionRef={composerNextActionRef}
                         placeholder={
                           props.activePendingApproval
                             ? props.activePendingApproval.supportsFeedback

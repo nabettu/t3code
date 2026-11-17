@@ -8,17 +8,18 @@ const MAX_NEXT_ACTIONS = 3;
 const MAX_LABEL_LENGTH = 40;
 const MAX_REASON_LENGTH = 120;
 const MAX_PROMPT_LENGTH = 2000;
-const FENCE = /^( {0,3})(`{3,}|~{3,})(.*)$/u;
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/u;
 
 function readFence(line: string) {
   const match = FENCE.exec(line);
   if (match === null) return null;
-  const [, indent = "", marker = "", info = ""] = match;
-  return { indent, marker, info };
+  const [, marker = "", info = ""] = match;
+  return { marker, info };
 }
 
 function clip(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  const characters = Array.from(text);
+  return characters.length <= max ? text : `${characters.slice(0, max - 1).join("")}…`;
 }
 
 function readAction(value: unknown): NextAction | null {
@@ -45,7 +46,7 @@ function trailingNextBlock(lines: ReadonlyArray<string>) {
       if (fence.marker.startsWith("`") && fence.info.includes("`")) continue;
       open = {
         marker: fence.marker,
-        isNext: fence.indent === "" && fence.marker === "```" && fence.info.trim() === "next",
+        isNext: fence.marker === "```" && fence.info.trim() === "next",
         line: index,
       };
       continue;

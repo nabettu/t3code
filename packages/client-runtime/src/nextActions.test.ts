@@ -44,6 +44,18 @@ describe("splitNextActions", () => {
     });
   });
 
+  it("reads a block indented by up to three spaces", () => {
+    expect(
+      splitNextActions('Done.\n\n  ```next\n  [{"label":"A","prompt":"a"}]\n  ```').actions,
+    ).toEqual([{ label: "A", prompt: "a" }]);
+  });
+
+  it("shortens labels without splitting characters", () => {
+    expect(
+      splitNextActions(block(JSON.stringify([{ label: "😀".repeat(41), prompt: "a" }]))).actions,
+    ).toEqual([{ label: `${"😀".repeat(39)}…`, prompt: "a" }]);
+  });
+
   it("drops repeated prompts and shortens long labels", () => {
     const actions = [
       { label: "x".repeat(60), prompt: "a" },
