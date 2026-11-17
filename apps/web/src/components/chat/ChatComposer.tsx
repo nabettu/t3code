@@ -239,7 +239,9 @@ import { observeResize } from "~/lib/observeResize";
 
 const isEnvironmentRequestInvalidError = Schema.is(EnvironmentRequestInvalidError);
 import { toastManager } from "../ui/toast";
-import { BuildingIcon, PlayIcon, ReplyIcon } from "lucide-react";
+import { BuildingIcon, PlayIcon, ReplyIcon, ArrowRightIcon } from "lucide-react";
+import type { NextAction } from "@t3tools/client-runtime/next-actions";
+import { ComposerNextActions } from "./ComposerNextActions";
 import { useNavigate } from "@tanstack/react-router";
 import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { assistantCitationNavigation } from "../../lib/assistantCitationNavigation";
@@ -369,6 +371,8 @@ export interface ChatComposerProps {
   activeThreadId: ThreadId | null;
   activeThread: Thread | undefined;
   activeThreadRuns: ReadonlyArray<OrchestrationV2Run>;
+  /** Suggested follow-ups from the latest completed run's reply. */
+  nextActions: ReadonlyArray<NextAction> | null;
   promptHistoryEntries: ReadonlyArray<TimelineEntry>;
   forceExpandedOnMobile: boolean;
   projectSelectionRequired: boolean;
@@ -502,6 +506,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadId,
     activeThread,
     activeThreadRuns,
+    nextActions,
     promptHistoryEntries,
     forceExpandedOnMobile,
     projectSelectionRequired,
@@ -2518,12 +2523,48 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       ]
     : [];
+  // Shown only on an empty composer, so sending one never replaces what the user typed.
+  const offeredNextActions =
+    nextActions !== null &&
+    phase !== "running" &&
+    phase !== "connecting" &&
+    !isSendBusy &&
+    !showResumeAction &&
+    !composerDraftHasUserContent(composerDraft) &&
+    !isComposerApprovalState &&
+    !activePendingProgress &&
+    !projectSelectionRequired &&
+    !showProviderUnavailable
+      ? nextActions
+      : null;
+  const sendNextAction = (nextPrompt: string) => {
+    editPromptFromTraits(() => nextPrompt);
+    submitComposer();
+  };
+  const nextActionBannerItems: readonly ComposerBannerStackItem[] = offeredNextActions
+    ? [
+        {
+          id: "next-actions",
+          variant: "default",
+          icon: <ArrowRightIcon />,
+          title: "Next",
+          actions: (
+            <ComposerNextActions
+              actions={offeredNextActions}
+              onSend={sendNextAction}
+              onEdit={(nextPrompt) => editPromptFromTraits(() => nextPrompt)}
+            />
+          ),
+        },
+      ]
+    : [];
   const bannerItems: readonly ComposerBannerStackItem[] =
     runtimeModeCeilingDenial === undefined || activePendingProgress
-      ? [...props.bannerItems, ...replyBannerItems]
+      ? [...props.bannerItems, ...replyBannerItems, ...nextActionBannerItems]
       : [
           ...props.bannerItems,
           ...replyBannerItems,
+          ...nextActionBannerItems,
           {
             id: "managed-runtime-mode",
             variant: "warning",

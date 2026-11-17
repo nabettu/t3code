@@ -1480,6 +1480,11 @@ export function presentThreadShellFromProjection(
       hasActionableProposedPlan: projection.plans.some(
         (plan) => plan.kind === "proposed_plan" && plan.status === "active",
       ),
+      todoProgress: todoProgressFromPlan(
+        projection.plans.findLast(
+          (plan) => plan.kind === "todo_list" && plan.status !== "superseded",
+        ),
+      ),
       providerInstanceHistory: [
         ...new Set(
           projection.providerThreads
@@ -1497,6 +1502,14 @@ export function presentThreadShellFromProjection(
     }),
     latestRun,
     runtime,
+  };
+}
+
+function todoProgressFromPlan(plan: ThreadStructure["plans"][number] | undefined) {
+  if (plan?.kind !== "todo_list" || plan.steps.length === 0) return null;
+  return {
+    runId: plan.runId,
+    steps: plan.steps.map((step) => ({ text: step.text, status: step.status })),
   };
 }
 

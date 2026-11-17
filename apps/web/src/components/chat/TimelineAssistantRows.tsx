@@ -2,6 +2,7 @@ import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipel
 import { MessageId, type RunId, type TurnItemId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
 import { agentWorkingDirectories } from "@t3tools/client-runtime/workspace-basename-lookup";
+import { splitNextActions } from "@t3tools/client-runtime/next-actions";
 import { memo, use, useState } from "react";
 import { type ChatMessage, type TurnDiffSummary } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
@@ -45,7 +46,7 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
     row.message.streaming ? ctx.threadRef : null,
     row.projectedItem?.item.id,
   );
-  const text = liveText ?? row.message.text;
+  const text = splitNextActions(liveText ?? row.message.text).markdown;
   const messageText =
     text || (row.message.streaming || row.suppressEmptyResponse ? "" : "(empty response)");
 
@@ -328,7 +329,7 @@ function AssistantCopyButton({
   streaming: boolean;
 }) {
   const assistantCopyState = resolveAssistantMessageCopyState({
-    text: message.text ?? null,
+    text: splitNextActions(message.text ?? "").markdown || null,
     showCopyButton,
     streaming,
   });

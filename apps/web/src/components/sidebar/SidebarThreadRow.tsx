@@ -2,6 +2,8 @@ import { useAtomMount } from "@effect/atom-react";
 import { asLaunchingThread } from "@t3tools/client-runtime/state/thread-inbox";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
+import { todoProgressSummary } from "@t3tools/client-runtime/todo-progress";
+import { SidebarTodoProgress, SidebarTodoSteps } from "./SidebarTodoProgress";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -258,6 +260,7 @@ function SidebarThreadTooltip({
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
+  const todoProgress = todoProgressSummary(thread);
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -349,6 +352,7 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
+        {todoProgress ? <SidebarTodoSteps steps={todoProgress.steps} /> : null}
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );
@@ -1094,8 +1098,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         <EnvironmentMachineIcon aria-hidden kind={props.environmentMachine} className="size-3.5" />
       </span>
     ) : null;
+  const todoProgress = todoProgressSummary(thread);
   // Local customization: the list shows no branch, pull request, or diff details.
-  const metaLineEmpty = !showsScratchMachine && runningTerminalIds.length === 0;
+  const metaLineEmpty =
+    !showsScratchMachine && todoProgress === null && runningTerminalIds.length === 0;
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
       {showsScratchMachine ? (
@@ -1107,9 +1113,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           />
           <span className="min-w-0 flex-1 truncate">{props.scratchMachineLabel}</span>
         </>
-      ) : (
-        <span className="flex-1" />
-      )}
+      ) : null}
+      {todoProgress ? (
+        <SidebarTodoProgress
+          progress={todoProgress}
+          showCurrent={status === "working"}
+          className="max-w-1/2 shrink-0"
+        />
+      ) : null}
+      {checkoutThread.branch || showsScratchMachine ? null : <span className="flex-1" />}
       {terminalStatusIcon}
       <span
         aria-hidden
@@ -1192,6 +1204,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {draftIndicator}
               {title}
+              {todoProgress && !multiline ? (
+                <SidebarTodoProgress
+                  progress={todoProgress}
+                  showCurrent={false}
+                  className="shrink-0 text-secondary-label"
+                />
+              ) : null}
               {multiline ? titleLineIcons : null}
               {pinIndicator}
               {multiline ? null : terminalStatusIcon}

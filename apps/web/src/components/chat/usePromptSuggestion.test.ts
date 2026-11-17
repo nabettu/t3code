@@ -8,6 +8,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
+import { offeredNextActions } from "./nextActions.logic";
 import { offeredPromptSuggestion } from "./usePromptSuggestion";
 
 const now = DateTime.makeUnsafe("2026-06-20T00:00:00.000Z");
@@ -67,5 +68,36 @@ describe("offeredPromptSuggestion", () => {
     // Cached detail that predates the shell's cancelled run cannot vouch for what ran in between.
     const unseen = run(RunId.make("run-3"), 3, "cancelled", false);
     expect(offeredPromptSuggestion(suggestion, summary(unseen), [turn])).toBeNull();
+  });
+});
+
+describe("offeredNextActions", () => {
+  const block = '```next\n[{"label":"Open a PR","prompt":"Open a PR."}]\n```';
+  const reply = (runId: RunId, streaming = false) => ({
+    role: "assistant" as const,
+    runId,
+    text: `Done.\n\n${block}`,
+    streaming,
+  });
+
+  it("offers the last reply's actions only while its run is the latest completed run", () => {
+    const turn = run(RunId.make("run-1"), 1, "completed");
+    expect(offeredNextActions(summary(turn), [turn], [reply(turn.id)])?.actions).toEqual([
+      { label: "Open a PR", prompt: "Open a PR." },
+    ]);
+    expect(offeredNextActions(summary(turn), [turn], [reply(turn.id, true)])).toBeNull();
+
+    const next = run(RunId.make("run-2"), 2, "running");
+    expect(offeredNextActions(summary(next), [turn, next], [reply(turn.id)])).toBeNull();
+
+    // A later reply without a block hides the earlier one's actions.
+    const done = run(RunId.make("run-2"), 2, "completed");
+    expect(
+      offeredNextActions(
+        summary(done),
+        [turn, done],
+        [reply(turn.id), { role: "assistant", runId: done.id, text: "Done.", streaming: false }],
+      ),
+    ).toBeNull();
   });
 });

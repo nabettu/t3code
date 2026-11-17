@@ -40,6 +40,7 @@ import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
+import { splitNextActions } from "@t3tools/client-runtime/next-actions";
 import {
   IDLE_COMPACTING_LABELS,
   resolveUserMessageFileCards,
@@ -1994,7 +1995,9 @@ function renderFeedEntry(
     const { message } = entry;
     const isUser = message.role === "user";
     const presentation = resolveUserMessagePresentation(message);
-    const renderedText = renderAssistantCitationsAsText(presentation.text);
+    const renderedText = renderAssistantCitationsAsText(
+      isUser ? presentation.text : splitNextActions(presentation.text).markdown,
+    );
     const styles = isUser ? markdownStyles.user : markdownStyles.assistant;
     const timestampLabel = props.formatMessageTime(isUser ? message.createdAt : message.updatedAt);
     const attachments = message.attachments ?? [];

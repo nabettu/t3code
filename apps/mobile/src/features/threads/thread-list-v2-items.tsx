@@ -34,6 +34,7 @@ import { toServerClock } from "@t3tools/client-runtime/clock";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
+import { todoProgressSummary } from "@t3tools/client-runtime/todo-progress";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, Text as RNText, useWindowDimensions, View } from "react-native";
@@ -762,6 +763,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const rowAppearance = getThreadListV2RowAppearance(theme, sidebarPane, selected);
 
   const rawStatus = resolveThreadListV2Status(thread);
+  const todoProgress = todoProgressSummary(thread);
   const status = resolveThreadListV2RowStatus(thread);
   const isUnread = status === "ready" && threadHasUnseenCompletion(thread);
   const workingLabel = STATUS_LABEL_BY_STATUS[status];
@@ -773,7 +775,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const recede = shouldRecedeThreadRow({ status, selected });
   const isRegeneratingTitle = thread.titleRegeneration != null;
   const timeLabel = props.timeLabel;
-  const rowAccessibilityLabel = threadListV2RowAccessibilityLabel({
+  const baseAccessibilityLabel = threadListV2RowAccessibilityLabel({
     title: thread.title,
     variant,
     woke: showsWoke,
@@ -786,6 +788,10 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     hasQueuedMessages: props.hasQueuedMessages === true,
     regeneratingTitle: isRegeneratingTitle,
   });
+  const rowAccessibilityLabel =
+    todoProgress && variant === "card"
+      ? `${baseAccessibilityLabel}, ${todoProgress.completed} of ${todoProgress.total} steps done`
+      : baseAccessibilityLabel;
 
   const visitThread = useAtomCommand(threadEnvironment.visit, { reportFailure: false });
   const markThreadUnread = useAtomCommand(threadEnvironment.markUnread, { reportFailure: false });
@@ -1303,6 +1309,40 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             query={props.searchQuery ?? ""}
             selected={selected}
           />
+        </View>
+      ) : null}
+      {todoProgress ? (
+        <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
+          <Text
+            className={cn(
+              "text-xs tabular-nums",
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : rowAppearance.tertiaryForegroundClassName,
+            )}
+            style={{ fontFamily: MONO_FONT }}
+          >
+            {todoProgress.completed}/{todoProgress.total}
+          </Text>
+          <View className="h-1 w-10 overflow-hidden rounded-full bg-subtle">
+            <View
+              className="h-full rounded-full bg-primary"
+              style={{ width: `${(todoProgress.completed / todoProgress.total) * 100}%` }}
+            />
+          </View>
+          {todoProgress.current ? (
+            <Text
+              className={cn(
+                "flex-1 text-xs",
+                selected
+                  ? selectedThreadRowColors.mutedForegroundClassName
+                  : rowAppearance.tertiaryForegroundClassName,
+              )}
+              numberOfLines={1}
+            >
+              {todoProgress.current}
+            </Text>
+          ) : null}
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>

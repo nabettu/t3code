@@ -13,6 +13,7 @@ import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
+import type { NextAction } from "@t3tools/client-runtime/next-actions";
 import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -210,6 +211,8 @@ import { SETTLE_FLOATING_RESERVED, SettleFloatingButton } from "./SettleFloating
 import { useThreadQueuedCount } from "./ThreadQueueControl";
 import { ThreadGuestShareBar } from "./ThreadGuestShareBar";
 import { ThreadSideChatsRow } from "./ThreadSideChatsRow";
+import { ThreadNextActions } from "./ThreadNextActions";
+import { resolveOfferedNextActions } from "./nextActionOffer";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-scroll-position";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
@@ -1405,6 +1408,41 @@ function ThreadDetailBody(
     });
   };
 
+  const nextActions =
+    props.draftMode || isProviderSubagent || !props.canOperateThread || props.queuedRunEdit !== null
+      ? []
+      : resolveOfferedNextActions({
+          feed: selectedThreadFeed,
+          latestRun: props.activityRun,
+          busy: props.activeThreadBusy,
+          hasPendingRequest:
+            props.activePendingApprovals.length > 0 || props.activePendingUserInput !== null,
+        });
+
+  const handleNextAction = (action: NextAction, intent: "send" | "edit") => {
+    if (props.composerDraftKey === null) return;
+    const draft = getComposerDraftSnapshot(props.composerDraftKey);
+    const draftEmpty =
+      draft.text.trim().length === 0 &&
+      draft.attachments.length === 0 &&
+      (draft.context?.records.length ?? 0) === 0;
+    if (intent === "send" && draftEmpty) {
+      props.onChangeDraftMessage(action.prompt);
+      void handleSendMessage();
+      return;
+    }
+    // Never replace what the user already typed; the suggestion joins it for editing.
+    const nextDraft =
+      draft.text.trim().length === 0
+        ? action.prompt
+        : `${draft.text.trimEnd()}\n\n${action.prompt}`;
+    props.onChangeDraftMessage(nextDraft);
+    requestAnimationFrame(() => {
+      composerEditorRef.current?.focus();
+      composerEditorRef.current?.setSelection({ start: nextDraft.length, end: nextDraft.length });
+    });
+  };
+
   const handleScrollToEnd = () => {
     void Haptics.selectionAsync();
     void scrollMessageToEnd({ animated: !reduceMotion, closeKeyboard: false }).catch(() => {
@@ -1770,6 +1808,11 @@ function ThreadDetailBody(
                         />
                       </Animated.View>
                     ) : null}
+                    <ThreadNextActions
+                      actions={nextActions}
+                      onSend={(action) => handleNextAction(action, "send")}
+                      onEdit={(action) => handleNextAction(action, "edit")}
+                    />
                     {props.activePendingApproval || props.activePendingUserInput ? (
                       <Animated.View
                         className="shrink-0 gap-3 px-4 pb-3"
