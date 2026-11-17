@@ -170,6 +170,7 @@ export interface EnvironmentThreadShell {
   readonly pendingGuestMessageCount?: number;
   readonly hasActionableProposedPlan: boolean;
   readonly todoProgress?: OrchestrationV2ThreadShell["todoProgress"];
+  readonly childWork?: OrchestrationV2ThreadShell["childWork"];
   readonly pendingBackgroundTasks: ReadonlyArray<
     NonNullable<OrchestrationV2ThreadShell["pendingBackgroundTasks"]>[number]
   >;
@@ -328,6 +329,7 @@ export function presentThreadShell(
     pendingGuestMessageCount: thread.pendingGuestMessageCount ?? 0,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,
     todoProgress: thread.todoProgress ?? null,
+    childWork: thread.childWork ?? null,
     pendingBackgroundTasks: thread.pendingBackgroundTasks ?? [],
     providerInstanceHistory: thread.providerInstanceHistory ?? [],
     goal: thread.goal ?? null,

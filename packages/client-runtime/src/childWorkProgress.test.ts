@@ -1,13 +1,15 @@
-import { RunId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { childWorkProgress, sameChildWorkProgress } from "./childWorkProgress.ts";
+import { presentThreadShell } from "./state/models.ts";
 import { v2ThreadShell } from "./state/orchestrationV2TestFixtures.ts";
 
 const childId = ThreadId.make("thread:child");
 const runId = RunId.make("run:child");
 const todo = { runId, completed: 1, total: 2, current: "Fix", steps: [] };
-const parent = {
+const parent = presentThreadShell(EnvironmentId.make("environment-v2"), {
+  ...v2ThreadShell,
   childWork: {
     runId: null,
     finished: 1,
@@ -17,7 +19,7 @@ const parent = {
       { threadId: null, title: "Native", finished: true },
     ],
   },
-};
+});
 const childShell = { ...v2ThreadShell, id: childId, latestRunId: runId, todoProgress: todo };
 
 describe("childWorkProgress", () => {
