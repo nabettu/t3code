@@ -93,6 +93,15 @@ export function SidebarChildWork({
       className={cn("inline-flex shrink-0 items-center gap-1 text-xs tabular-nums", className)}
     >
       <BotIcon aria-hidden className="size-3" />
+      <span
+        aria-hidden
+        className="relative h-1 w-4 shrink-0 overflow-hidden rounded-full bg-current/20"
+      >
+        <span
+          className="absolute inset-y-0 start-0 bg-current"
+          style={{ width: `${(progress.finished / progress.total) * 100}%` }}
+        />
+      </span>
       <span aria-hidden>
         {progress.finished}/{progress.total}
       </span>

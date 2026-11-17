@@ -1370,6 +1370,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           >
             Subagents {childWork.finished}/{childWork.total}
           </Text>
+          <View className="h-1 w-10 overflow-hidden rounded-full bg-subtle">
+            <View
+              className="h-full rounded-full bg-primary"
+              style={{ width: `${(childWork.finished / childWork.total) * 100}%` }}
+            />
+          </View>
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
