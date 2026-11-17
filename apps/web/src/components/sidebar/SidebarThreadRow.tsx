@@ -1125,13 +1125,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           <span className="min-w-0 flex-1 truncate">{props.scratchMachineLabel}</span>
         </>
       ) : null}
-      {todoProgress ? (
-        <SidebarTodoProgress
-          progress={todoProgress}
-          showCurrent={status === "working"}
-          className="max-w-1/2 shrink-0"
-        />
-      ) : null}
+      {todoProgress ? <SidebarTodoProgress progress={todoProgress} /> : null}
       {childWork ? <SidebarChildWork progress={childWork} /> : null}
       {checkoutThread.branch || showsScratchMachine ? null : <span className="flex-1" />}
       {terminalStatusIcon}
@@ -1217,11 +1211,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {draftIndicator}
               {title}
               {todoProgress && !multiline ? (
-                <SidebarTodoProgress
-                  progress={todoProgress}
-                  showCurrent={false}
-                  className="shrink-0 text-secondary-label"
-                />
+                <SidebarTodoProgress progress={todoProgress} className="text-secondary-label" />
               ) : null}
               {childWork && !multiline ? (
                 <SidebarChildWork progress={childWork} className="text-secondary-label" />

@@ -1,6 +1,12 @@
 import type { ChildWorkProgress } from "@t3tools/client-runtime/child-work-progress";
 import type { TodoProgressSummary } from "@t3tools/client-runtime/todo-progress";
-import { BotIcon, CircleCheckIcon, CircleDashedIcon, CircleDotIcon } from "lucide-react";
+import {
+  BotIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CircleDotIcon,
+  ListTodoIcon,
+} from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
@@ -8,20 +14,19 @@ import { hoverListWindow, todoFocusIndex } from "./SidebarTodoProgress.logic";
 
 export function SidebarTodoProgress({
   progress,
-  showCurrent,
   className,
 }: {
   readonly progress: TodoProgressSummary;
-  readonly showCurrent: boolean;
   readonly className?: string;
 }) {
-  const { completed, total, current } = progress;
+  const { completed, total } = progress;
   return (
     <span
       role="img"
       aria-label={`${completed} of ${total} steps done`}
-      className={cn("inline-flex min-w-0 items-center gap-1.5 text-xs", className)}
+      className={cn("inline-flex shrink-0 items-center gap-1 text-xs tabular-nums", className)}
     >
+      <ListTodoIcon aria-hidden className="size-3" />
       <span
         aria-hidden
         className="relative h-1 w-4 shrink-0 overflow-hidden rounded-full bg-current/20"
@@ -31,14 +36,9 @@ export function SidebarTodoProgress({
           style={{ width: `${(completed / total) * 100}%` }}
         />
       </span>
-      <span aria-hidden className="shrink-0 tabular-nums">
+      <span aria-hidden>
         {completed}/{total}
       </span>
-      {showCurrent && current !== null ? (
-        <span aria-hidden className="min-w-0 truncate">
-          {current}
-        </span>
-      ) : null}
     </span>
   );
 }
@@ -139,7 +139,6 @@ export function SidebarChildWorkList({ progress }: { readonly progress: ChildWor
             {child.todo ? (
               <SidebarTodoProgress
                 progress={child.todo}
-                showCurrent={false}
                 className="shrink-0 text-muted-foreground"
               />
             ) : null}

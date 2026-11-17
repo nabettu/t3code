@@ -1323,66 +1323,70 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           />
         </View>
       ) : null}
-      {todoProgress ? (
-        <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
-          <SymbolView
-            name="list.number"
-            size={12}
-            tintColorClassName={
-              selected
-                ? selectedThreadRowColors.iconTintClassName
-                : rowAppearance.mutedIconTintClassName
-            }
-            type="monochrome"
-          />
-          <Text
-            className={cn(
-              "text-xs tabular-nums",
-              selected
-                ? selectedThreadRowColors.mutedForegroundClassName
-                : rowAppearance.tertiaryForegroundClassName,
-            )}
-            style={{ fontFamily: MONO_FONT }}
-          >
-            {todoProgress.completed}/{todoProgress.total}
-          </Text>
-          <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
-            <View
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${(todoProgress.completed / todoProgress.total) * 100}%` }}
-            />
-          </View>
-        </View>
-      ) : null}
-      {childWork ? (
-        <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
-          <SymbolView
-            name="robot"
-            size={12}
-            tintColorClassName={
-              selected
-                ? selectedThreadRowColors.iconTintClassName
-                : rowAppearance.mutedIconTintClassName
-            }
-            type="monochrome"
-          />
-          <Text
-            className={cn(
-              "text-xs tabular-nums",
-              selected
-                ? selectedThreadRowColors.mutedForegroundClassName
-                : rowAppearance.tertiaryForegroundClassName,
-            )}
-            style={{ fontFamily: MONO_FONT }}
-          >
-            {childWork.finished}/{childWork.total}
-          </Text>
-          <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
-            <View
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${(childWork.finished / childWork.total) * 100}%` }}
-            />
-          </View>
+      {todoProgress || childWork ? (
+        <View className="mt-1 flex-row items-center gap-4" style={{ paddingLeft: titleTextInset }}>
+          {todoProgress ? (
+            <View className="flex-row items-center gap-2">
+              <SymbolView
+                name="list.number"
+                size={12}
+                tintColorClassName={
+                  selected
+                    ? selectedThreadRowColors.iconTintClassName
+                    : rowAppearance.mutedIconTintClassName
+                }
+                type="monochrome"
+              />
+              <Text
+                className={cn(
+                  "text-xs tabular-nums",
+                  selected
+                    ? selectedThreadRowColors.mutedForegroundClassName
+                    : rowAppearance.tertiaryForegroundClassName,
+                )}
+                style={{ fontFamily: MONO_FONT }}
+              >
+                {todoProgress.completed}/{todoProgress.total}
+              </Text>
+              <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
+                <View
+                  className="h-full rounded-full bg-primary"
+                  style={{ width: `${(todoProgress.completed / todoProgress.total) * 100}%` }}
+                />
+              </View>
+            </View>
+          ) : null}
+          {childWork ? (
+            <View className="flex-row items-center gap-2">
+              <SymbolView
+                name="robot"
+                size={12}
+                tintColorClassName={
+                  selected
+                    ? selectedThreadRowColors.iconTintClassName
+                    : rowAppearance.mutedIconTintClassName
+                }
+                type="monochrome"
+              />
+              <Text
+                className={cn(
+                  "text-xs tabular-nums",
+                  selected
+                    ? selectedThreadRowColors.mutedForegroundClassName
+                    : rowAppearance.tertiaryForegroundClassName,
+                )}
+                style={{ fontFamily: MONO_FONT }}
+              >
+                {childWork.finished}/{childWork.total}
+              </Text>
+              <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
+                <View
+                  className="h-full rounded-full bg-primary"
+                  style={{ width: `${(childWork.finished / childWork.total) * 100}%` }}
+                />
+              </View>
+            </View>
+          ) : null}
         </View>
       ) : null}
       <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
