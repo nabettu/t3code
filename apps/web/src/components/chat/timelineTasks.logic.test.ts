@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { applyTimelineOps, latestTimelineSummary, summarizeTimeline } from "./timelineTasks.logic";
+import {
+  applyTimelineOps,
+  formatTimelinePercent,
+  latestTimelineSummary,
+  summarizeTimeline,
+  timelineRowWindow,
+} from "./timelineTasks.logic";
 
 const PLAN = [
   { op: "add", id: "photo", title: "写真の並べ替え" },
@@ -65,6 +71,26 @@ describe("applyTimelineOps", () => {
     expect(byId.get("ui")?.done).toEqual([0, 5]);
     // A group keeps the status its subtasks make; only the title change lands.
     expect(byId.get("api")).toMatchObject({ title: "API", status: "pending" });
+  });
+
+  it("refuses an operation with a malformed field, as the mod does", () => {
+    const tasks = applyTimelineOps(applyTimelineOps([], PLAN), [
+      { op: "add", id: "n", parent: null },
+      { op: "add", id: "w", weight: "3" },
+      { op: "add", id: "d", done: [1] },
+      { op: "add", id: "s", status: "done" },
+      { op: "update", id: "spec", title: 3, status: "completed" },
+    ]);
+    expect(tasks.map((task) => task.id)).toEqual(PLAN.map((op) => op.id));
+    expect(tasks.find((task) => task.id === "spec")?.status).toBe("pending");
+  });
+
+  it("drops a task's own units once it gets subtasks", () => {
+    const tasks = applyTimelineOps(applyTimelineOps([], PLAN), [
+      { op: "add", id: "drag", parent: "ui", title: "drag" },
+      { op: "remove", id: "drag" },
+    ]);
+    expect(tasks.find((task) => task.id === "ui")?.done).toBeUndefined();
   });
 
   it("removes a task with its subtasks", () => {
@@ -182,8 +208,47 @@ describe("latestTimelineSummary", () => {
     expect(summary?.leaves).toEqual({ completed: 3, total: 5 });
   });
 
+  it("replays in ordinal order, since older history is appended at the end", () => {
+    const summary = latestTimelineSummary([
+      { ...call(PROGRESS), ordinal: 2 },
+      { ...call(PLAN), ordinal: 1 },
+    ]);
+    expect(summary?.leaves).toEqual({ completed: 3, total: 5 });
+  });
+
   it("is null without a timeline tree", () => {
     expect(latestTimelineSummary([call([], "completed", "mcp__other__tool")])).toBeNull();
     expect(latestTimelineSummary([call([{ op: "update", id: "x" }])])).toBeNull();
+  });
+});
+
+describe("formatTimelinePercent", () => {
+  it.each([
+    { share: 0, expected: "0.0%" },
+    { share: 0.625, expected: "62.5%" },
+    { share: 0.9999, expected: "99.9%" },
+    { share: 1, expected: "100%" },
+  ])("shows $share as $expected", ({ share, expected }) => {
+    expect(formatTimelinePercent(share)).toBe(expected);
+  });
+});
+
+describe("timelineRowWindow", () => {
+  const rows = (statuses: string) =>
+    [...statuses].map((mark) => ({ status: mark === "x" ? "completed" : "pending" }) as const);
+
+  it("shows everything that fits", () => {
+    expect(timelineRowWindow(rows("xxp"), 30)).toEqual({ start: 0, end: 3 });
+  });
+
+  it("starts just before the first open row when the tree is long", () => {
+    expect(timelineRowWindow(rows("xxxxxxxxxxp" + "p".repeat(40)), 30)).toEqual({
+      start: 8,
+      end: 38,
+    });
+  });
+
+  it("keeps the last rows when every row is completed", () => {
+    expect(timelineRowWindow(rows("x".repeat(40)), 30)).toEqual({ start: 10, end: 40 });
   });
 });

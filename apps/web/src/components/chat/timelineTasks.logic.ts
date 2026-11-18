@@ -171,24 +171,27 @@ function isStatus(value: unknown): value is TimelineTaskStatus {
   return STATUSES.includes(value as TimelineTaskStatus);
 }
 
+const OP_FIELDS = {
+  parent: (value: unknown) => typeof value === "string",
+  title: (value: unknown) => typeof value === "string",
+  note: (value: unknown) => typeof value === "string",
+  description: (value: unknown) => typeof value === "string",
+  status: isStatus,
+  weight: (value: unknown) => typeof value === "number",
+  done: (value: unknown) =>
+    Array.isArray(value) && value.length === 2 && value.every((n) => typeof n === "number"),
+} as const;
+
+/** The operation, or null when the mod would refuse it for a malformed or missing field. */
 function readOp(value: unknown): TimelineOp | null {
   if (typeof value !== "object" || value === null) return null;
   const raw = value as Record<string, unknown>;
   if (raw.op !== "add" && raw.op !== "update" && raw.op !== "remove") return null;
   if (typeof raw.id !== "string") return null;
-  const done = raw.done;
-  return {
-    op: raw.op,
-    id: raw.id,
-    ...(typeof raw.parent === "string" ? { parent: raw.parent } : {}),
-    ...(typeof raw.title === "string" ? { title: raw.title } : {}),
-    ...(isStatus(raw.status) ? { status: raw.status } : {}),
-    ...(typeof raw.weight === "number" ? { weight: raw.weight } : {}),
-    ...(typeof raw.note === "string" ? { note: raw.note } : {}),
-    ...(Array.isArray(done) && done.length === 2 && done.every((n) => typeof n === "number")
-      ? { done: [done[0] as number, done[1] as number] as const }
-      : {}),
-  };
+  for (const [field, isValid] of Object.entries(OP_FIELDS)) {
+    if (raw[field] !== undefined && !isValid(raw[field])) return null;
+  }
+  return raw as unknown as TimelineOp;
 }
 
 function isValidDone(done: readonly [number, number]) {
@@ -260,8 +263,8 @@ export function applyTimelineOps(
       if (op.parent !== undefined && !next.some((task) => task.id === op.parent)) continue;
       const state = resolveState(op.status, op.done, { status: "pending" });
       if (state === null) continue;
-      next = settleGroups([
-        ...next,
+      next = [
+        ...next.map((task) => (task.id === op.parent ? withoutDone(task) : task)),
         {
           id: op.id,
           parent: op.parent ?? null,
@@ -271,13 +274,13 @@ export function applyTimelineOps(
           ...(op.note === undefined ? {} : { note: op.note }),
           ...(state.done === undefined ? {} : { done: state.done }),
         },
-      ]);
+      ];
       continue;
     }
     if (current === undefined) continue;
     if (op.op === "remove") {
       const gone = descendantIds(next, op.id);
-      next = settleGroups(next.filter((task) => !gone.has(task.id)));
+      next = next.filter((task) => !gone.has(task.id));
       continue;
     }
     const isGroup = next.some((task) => task.parent === op.id);
@@ -290,9 +293,9 @@ export function applyTimelineOps(
       ...(op.note === undefined ? {} : { note: op.note }),
       ...state,
     };
-    next = settleGroups(next);
   }
-  return next;
+  // Group statuses depend only on their subtasks, so settling once matches settling per operation.
+  return settleGroups(next);
 }
 
 /** The tree the thread's finished `timeline_tasks` calls build, in order. */
@@ -302,14 +305,38 @@ export function latestTimelineSummary(
     readonly toolName?: string | null;
     readonly status?: string;
     readonly input?: unknown;
+    readonly ordinal?: number;
   }>,
 ): TimelineSummary | null {
-  let tasks: TimelineTask[] = [];
-  for (const item of items) {
-    if (item.type !== "dynamic_tool" || item.status !== "completed") continue;
-    if (item.toolName !== TIMELINE_TASKS_TOOL) continue;
-    const ops = (item.input as { ops?: unknown } | null | undefined)?.ops;
-    if (Array.isArray(ops)) tasks = applyTimelineOps(tasks, ops);
-  }
+  // Older history pages are appended after the newer items, so order by ordinal.
+  const calls = items
+    .filter(
+      (item) =>
+        item.type === "dynamic_tool" &&
+        item.status === "completed" &&
+        item.toolName === TIMELINE_TASKS_TOOL,
+    )
+    .toSorted((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+  const ops = calls.flatMap((item) => {
+    const value = (item.input as { ops?: unknown } | null | undefined)?.ops;
+    return Array.isArray(value) ? value : [];
+  });
+  const tasks = applyTimelineOps([], ops);
   return tasks.length === 0 ? null : summarizeTimeline(tasks);
+}
+
+/** Tenths, rounded down, so open work never reads 100%. */
+export function formatTimelinePercent(share: number) {
+  return share >= 1 ? "100%" : `${(Math.floor(share * 1000) / 10).toFixed(1)}%`;
+}
+
+/** Rows to show: from just before the first open row, else the last ones. */
+export function timelineRowWindow(
+  rows: ReadonlyArray<{ readonly status: TimelineTaskStatus }>,
+  limit: number,
+) {
+  if (rows.length <= limit) return { start: 0, end: rows.length };
+  const open = rows.findIndex((row) => row.status !== "completed");
+  const start = Math.min(Math.max(0, (open < 0 ? rows.length : open) - 2), rows.length - limit);
+  return { start, end: start + limit };
 }

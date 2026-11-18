@@ -3,11 +3,13 @@ import { CircleCheckIcon, CircleDashedIcon, CircleDotIcon, CircleXIcon } from "l
 import { cn } from "~/lib/utils";
 
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
-import type { TimelineShares, TimelineSummary, TimelineTaskStatus } from "./timelineTasks.logic";
-
-function formatTimelinePercent(share: number) {
-  return `${(share * 100).toFixed(1)}%`;
-}
+import {
+  formatTimelinePercent,
+  timelineRowWindow,
+  type TimelineShares,
+  type TimelineSummary,
+  type TimelineTaskStatus,
+} from "./timelineTasks.logic";
 
 const SEGMENTS = [
   { status: "completed", className: "bg-success" },
@@ -78,8 +80,9 @@ const ROW_LIMIT = 30;
 
 /** The task tree in the thread details card. */
 export function ThreadTimelineSection({ summary }: { readonly summary: TimelineSummary }) {
-  const rows = summary.rows.slice(0, ROW_LIMIT);
-  const hidden = summary.rows.length - rows.length;
+  const { start, end } = timelineRowWindow(summary.rows, ROW_LIMIT);
+  const rows = summary.rows.slice(start, end);
+  const after = summary.rows.length - end;
   return (
     <ThreadDetailsSection
       headingId="thread-details-timeline-heading"
@@ -93,6 +96,7 @@ export function ThreadTimelineSection({ summary }: { readonly summary: TimelineS
       <div className="flex flex-col gap-2 px-2.5 text-xs">
         <TimelineBar shares={summary.shares} className="text-muted-foreground" />
         <ol className="grid gap-1" aria-label="Task tree">
+          {start > 0 ? <li className="ps-5 text-muted-foreground">{start} earlier</li> : null}
           {rows.map((row) => {
             const { Icon, className } = STATUS_ICONS[row.status];
             return (
@@ -137,7 +141,7 @@ export function ThreadTimelineSection({ summary }: { readonly summary: TimelineS
               </li>
             );
           })}
-          {hidden > 0 ? <li className="ps-5 text-muted-foreground">+{hidden} more</li> : null}
+          {after > 0 ? <li className="ps-5 text-muted-foreground">+{after} more</li> : null}
         </ol>
       </div>
     </ThreadDetailsSection>
