@@ -1,13 +1,10 @@
 /**
- * The claude-timeline mod's task tree, read from its newest tool result (the whole tree as text),
- * since loaded turn items may not reach back to the first call. Measuring follows the mod's
- * `hooks/tree.ts`: siblings split their parent's share by weight; open work stays below 100%.
+ * The claude-timeline mod's task tree, rebuilt from its `timeline_tasks` inputs: the wire drops tool
+ * results. Applying and measuring follow the mod's `hooks/tree.ts`: siblings split their parent's
+ * share by weight, and open work stays below 100%.
  */
 
-const TIMELINE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "mcp__timeline__timeline_tasks",
-  "mcp__timeline__timeline_read",
-]);
+const TIMELINE_TASKS_TOOL = "mcp__timeline__timeline_tasks";
 
 export type TimelineTaskStatus = "pending" | "in_progress" | "completed" | "blocked";
 
@@ -47,44 +44,7 @@ export interface TimelineSummary {
   readonly rows: ReadonlyArray<TimelineRow>;
 }
 
-const MARKS: Record<string, TimelineTaskStatus> = {
-  " ": "pending",
-  ">": "in_progress",
-  x: "completed",
-  "!": "blocked",
-};
-
 const STATUSES: readonly TimelineTaskStatus[] = ["pending", "in_progress", "completed", "blocked"];
-
-// `- [x] id: title (w=3, 1/2 done) — note`, indented two spaces per level.
-const LINE =
-  /^( *)- \[([ >x!])\] (.+?): (.*) \(w=(\d+(?:\.\d+)?)(?:, (\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?) done)?\)(?: — (.*))?$/;
-
-export function parseTimelineTree(text: string): TimelineTask[] {
-  const tasks: TimelineTask[] = [];
-  const stack: { depth: number; id: string }[] = [];
-  for (const line of text.split("\n")) {
-    const match = LINE.exec(line);
-    if (match === null) continue;
-    const [, indent = "", mark = " ", id = "", title = "", weight, completed, total, note] = match;
-    const depth = Math.floor(indent.length / 2);
-    while (stack.length > 0 && (stack.at(-1)?.depth ?? 0) >= depth) stack.pop();
-    const status = MARKS[mark] ?? "pending";
-    tasks.push({
-      id,
-      parent: stack.at(-1)?.id ?? null,
-      title,
-      status,
-      weight: Number(weight),
-      ...(completed === undefined || total === undefined
-        ? {}
-        : { done: [Number(completed), Number(total)] as const }),
-      ...(note === undefined ? {} : { note }),
-    });
-    stack.push({ depth, id });
-  }
-  return tasks;
-}
 
 // Below 1 so that 100% only ever means finished, as in the mod.
 const CAP = 0.9999;
@@ -196,45 +156,160 @@ export function summarizeTimeline(tasks: readonly TimelineTask[]): TimelineSumma
   };
 }
 
-function textOfBlocks(blocks: readonly unknown[]): string | null {
-  const texts = blocks.flatMap((block) =>
-    typeof block === "object" &&
-    block !== null &&
-    (block as { type?: unknown }).type === "text" &&
-    typeof (block as { text?: unknown }).text === "string"
-      ? [(block as { text: string }).text]
-      : [],
+interface TimelineOp {
+  readonly op: "add" | "update" | "remove";
+  readonly id: string;
+  readonly parent?: string;
+  readonly title?: string;
+  readonly status?: TimelineTaskStatus;
+  readonly weight?: number;
+  readonly note?: string;
+  readonly done?: readonly [number, number];
+}
+
+function isStatus(value: unknown): value is TimelineTaskStatus {
+  return STATUSES.includes(value as TimelineTaskStatus);
+}
+
+function readOp(value: unknown): TimelineOp | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as Record<string, unknown>;
+  if (raw.op !== "add" && raw.op !== "update" && raw.op !== "remove") return null;
+  if (typeof raw.id !== "string") return null;
+  const done = raw.done;
+  return {
+    op: raw.op,
+    id: raw.id,
+    ...(typeof raw.parent === "string" ? { parent: raw.parent } : {}),
+    ...(typeof raw.title === "string" ? { title: raw.title } : {}),
+    ...(isStatus(raw.status) ? { status: raw.status } : {}),
+    ...(typeof raw.weight === "number" ? { weight: raw.weight } : {}),
+    ...(typeof raw.note === "string" ? { note: raw.note } : {}),
+    ...(Array.isArray(done) && done.length === 2 && done.every((n) => typeof n === "number")
+      ? { done: [done[0] as number, done[1] as number] as const }
+      : {}),
+  };
+}
+
+function isValidDone(done: readonly [number, number]) {
+  return done[0] >= 0 && done[0] <= done[1] && done[1] > 0;
+}
+
+function statusFromDone([completed, total]: readonly [number, number]): TimelineTaskStatus {
+  if (completed === total) return "completed";
+  return completed > 0 ? "in_progress" : "pending";
+}
+
+/** A status wins, a done without a status sets it, and completing fills every unit. */
+function resolveState(
+  status: TimelineTaskStatus | undefined,
+  done: readonly [number, number] | undefined,
+  before: { readonly status: TimelineTaskStatus; readonly done?: readonly [number, number] },
+): { status: TimelineTaskStatus; done?: readonly [number, number] } | null {
+  const units = done ?? before.done;
+  const next = status ?? (done === undefined ? before.status : statusFromDone(done));
+  if (next === "pending" && units !== undefined && units[0] > 0) return null;
+  if (units === undefined) return { status: next };
+  return { status: next, done: next === "completed" ? [units[1], units[1]] : units };
+}
+
+function withoutDone({ done: _done, ...rest }: TimelineTask): TimelineTask {
+  return rest;
+}
+
+/** A task with subtasks takes its status from them and keeps no units of its own. */
+function settleGroups(tasks: readonly TimelineTask[]): TimelineTask[] {
+  const measures = measureAll(tasks);
+  return tasks.map((task) =>
+    tasks.some((kid) => kid.parent === task.id)
+      ? { ...withoutDone(task), status: measures.get(task.id)?.status ?? task.status }
+      : task,
   );
-  return texts.length === 0 ? null : texts.join("");
 }
 
-/** The text of an MCP tool result, in the shapes the Claude adapter stores. */
-export function timelineToolOutputText(output: unknown): string | null {
-  if (typeof output === "string") return output;
-  if (Array.isArray(output)) return textOfBlocks(output);
-  if (typeof output !== "object" || output === null) return null;
-  const content = (output as { content?: unknown }).content;
-  if (typeof content === "string") return content;
-  return Array.isArray(content) ? textOfBlocks(content) : null;
+function descendantIds(tasks: readonly TimelineTask[], id: string): Set<string> {
+  const ids = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const task of tasks) {
+      if (task.parent !== null && ids.has(task.parent) && !ids.has(task.id)) {
+        ids.add(task.id);
+        grew = true;
+      }
+    }
+  }
+  return ids;
 }
 
-/** The tree from the newest finished timeline call that answered with one. */
+/** Applies `timeline_tasks` operations as the mod does, skipping the ones it refuses. */
+export function applyTimelineOps(
+  tasks: readonly TimelineTask[],
+  ops: readonly unknown[],
+): TimelineTask[] {
+  let next = [...tasks];
+  for (const value of ops) {
+    const op = readOp(value);
+    if (op === null) continue;
+    if (op.done !== undefined && !isValidDone(op.done)) continue;
+    if (op.weight !== undefined && !(op.weight > 0)) continue;
+    const index = next.findIndex((task) => task.id === op.id);
+    const current = next[index];
+    if (op.op === "add") {
+      if (current !== undefined) continue;
+      if (op.parent !== undefined && !next.some((task) => task.id === op.parent)) continue;
+      const state = resolveState(op.status, op.done, { status: "pending" });
+      if (state === null) continue;
+      next = settleGroups([
+        ...next,
+        {
+          id: op.id,
+          parent: op.parent ?? null,
+          title: op.title ?? op.id,
+          status: state.status,
+          weight: op.weight ?? 1,
+          ...(op.note === undefined ? {} : { note: op.note }),
+          ...(state.done === undefined ? {} : { done: state.done }),
+        },
+      ]);
+      continue;
+    }
+    if (current === undefined) continue;
+    if (op.op === "remove") {
+      const gone = descendantIds(next, op.id);
+      next = settleGroups(next.filter((task) => !gone.has(task.id)));
+      continue;
+    }
+    const isGroup = next.some((task) => task.parent === op.id);
+    const state = isGroup ? { status: current.status } : resolveState(op.status, op.done, current);
+    if (state === null) continue;
+    next[index] = {
+      ...withoutDone(current),
+      ...(op.title === undefined ? {} : { title: op.title }),
+      ...(op.weight === undefined ? {} : { weight: op.weight }),
+      ...(op.note === undefined ? {} : { note: op.note }),
+      ...state,
+    };
+    next = settleGroups(next);
+  }
+  return next;
+}
+
+/** The tree the thread's finished `timeline_tasks` calls build, in order. */
 export function latestTimelineSummary(
   items: ReadonlyArray<{
     readonly type: string;
     readonly toolName?: string | null;
     readonly status?: string;
-    readonly output?: unknown;
+    readonly input?: unknown;
   }>,
 ): TimelineSummary | null {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item?.type !== "dynamic_tool" || item.status !== "completed") continue;
-    if (!TIMELINE_TOOL_NAMES.has(item.toolName ?? "")) continue;
-    const text = timelineToolOutputText(item.output);
-    if (text === null) continue;
-    const tasks = parseTimelineTree(text);
-    if (tasks.length > 0) return summarizeTimeline(tasks);
+  let tasks: TimelineTask[] = [];
+  for (const item of items) {
+    if (item.type !== "dynamic_tool" || item.status !== "completed") continue;
+    if (item.toolName !== TIMELINE_TASKS_TOOL) continue;
+    const ops = (item.input as { ops?: unknown } | null | undefined)?.ops;
+    if (Array.isArray(ops)) tasks = applyTimelineOps(tasks, ops);
   }
-  return null;
+  return tasks.length === 0 ? null : summarizeTimeline(tasks);
 }

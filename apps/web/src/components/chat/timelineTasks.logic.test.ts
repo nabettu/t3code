@@ -1,75 +1,89 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  latestTimelineSummary,
-  parseTimelineTree,
-  summarizeTimeline,
-  timelineToolOutputText,
-} from "./timelineTasks.logic";
+import { applyTimelineOps, latestTimelineSummary, summarizeTimeline } from "./timelineTasks.logic";
 
-const TREE = [
-  "- [>] photo: 写真の並べ替え (w=1)",
-  "  - [x] spec: 仕様の確定 (w=1)",
-  "  - [x] api: API 層 (w=3)",
-  "    - [x] mutation: 位置変更 mutation (w=1)",
-  "    - [x] unit: 単体テスト (w=1)",
-  "  - [>] ui: UI: ドラッグ操作 (w=2, 2/5 done) — 並べ替え後の保存まで",
-  "  - [!] e2e: E2E (w=2) — エミュレータ未起動で止まっている",
-  "Progress: 57.14%",
-].join("\n");
+const PLAN = [
+  { op: "add", id: "photo", title: "写真の並べ替え" },
+  { op: "add", id: "spec", parent: "photo", title: "仕様の確定", weight: 1 },
+  { op: "add", id: "api", parent: "photo", title: "API 層", weight: 3 },
+  { op: "add", id: "mutation", parent: "api", title: "位置変更 mutation" },
+  { op: "add", id: "unit", parent: "api", title: "単体テスト" },
+  { op: "add", id: "ui", parent: "photo", title: "UI: ドラッグ操作", weight: 2, done: [0, 5] },
+  { op: "add", id: "e2e", parent: "photo", title: "E2E", weight: 2 },
+];
 
-describe("parseTimelineTree", () => {
-  it("reads ids, parents, statuses, weights, units and notes", () => {
-    const tasks = parseTimelineTree(TREE);
-    expect(tasks).toHaveLength(7);
-    expect(tasks[0]).toEqual({
-      id: "photo",
-      parent: null,
-      title: "写真の並べ替え",
-      status: "in_progress",
-      weight: 1,
-    });
-    expect(tasks[3]).toMatchObject({ id: "mutation", parent: "api", status: "completed" });
-    expect(tasks[5]).toEqual({
-      id: "ui",
-      parent: "photo",
-      title: "UI: ドラッグ操作",
-      status: "in_progress",
-      weight: 2,
-      done: [2, 5],
-      note: "並べ替え後の保存まで",
-    });
-    expect(tasks[6]).toMatchObject({
-      id: "e2e",
+const PROGRESS = [
+  { op: "update", id: "spec", status: "completed" },
+  { op: "update", id: "mutation", status: "completed" },
+  { op: "update", id: "unit", status: "completed" },
+  { op: "update", id: "ui", done: [2, 5], note: "並べ替え後の保存まで" },
+  { op: "update", id: "e2e", status: "blocked", note: "エミュレータ未起動で止まっている" },
+];
+
+const tree = () => applyTimelineOps(applyTimelineOps([], PLAN), PROGRESS);
+
+describe("applyTimelineOps", () => {
+  it("adds tasks under their parents with weights", () => {
+    const tasks = applyTimelineOps([], PLAN);
+    expect(tasks.map((task) => [task.id, task.parent, task.weight])).toEqual([
+      ["photo", null, 1],
+      ["spec", "photo", 1],
+      ["api", "photo", 3],
+      ["mutation", "api", 1],
+      ["unit", "api", 1],
+      ["ui", "photo", 2],
+      ["e2e", "photo", 2],
+    ]);
+  });
+
+  it("sets status from done, and a group's status from its subtasks", () => {
+    const tasks = tree();
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    expect(byId.get("ui")).toMatchObject({ status: "in_progress", done: [2, 5] });
+    expect(byId.get("api")?.status).toBe("completed");
+    expect(byId.get("photo")?.status).toBe("in_progress");
+    expect(byId.get("e2e")).toMatchObject({
       status: "blocked",
       note: "エミュレータ未起動で止まっている",
     });
   });
 
-  it("returns nothing for an empty tree or other text", () => {
-    expect(parseTimelineTree("(no tasks)\nProgress: 0.00%")).toEqual([]);
-    expect(parseTimelineTree("Error: ops must be an array of task operations.")).toEqual([]);
+  it("skips what the mod refuses and keeps the rest of the call", () => {
+    const tasks = applyTimelineOps(applyTimelineOps([], PLAN), [
+      { op: "add", id: "spec", title: "duplicate" },
+      { op: "add", id: "orphan", parent: "missing" },
+      { op: "update", id: "missing", status: "completed" },
+      { op: "update", id: "ui", done: [6, 5] },
+      { op: "update", id: "spec", weight: 0 },
+      { op: "update", id: "api", status: "completed", title: "API" },
+      "not an op",
+      { op: "update", id: "spec", status: "completed" },
+    ]);
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    expect(byId.has("orphan")).toBe(false);
+    expect(byId.get("spec")).toMatchObject({ title: "仕様の確定", weight: 1, status: "completed" });
+    expect(byId.get("ui")?.done).toEqual([0, 5]);
+    // A group keeps the status its subtasks make; only the title change lands.
+    expect(byId.get("api")).toMatchObject({ title: "API", status: "pending" });
   });
 
-  it("keeps a sibling under the nearest shallower task", () => {
-    const tasks = parseTimelineTree(
-      ["- [ ] a: A (w=1)", "  - [ ] b: B (w=1)", "    - [ ] c: C (w=1)", "  - [ ] d: D (w=1)"].join(
-        "\n",
-      ),
-    );
-    expect(tasks.map((task) => [task.id, task.parent])).toEqual([
-      ["a", null],
-      ["b", "a"],
-      ["c", "b"],
-      ["d", "a"],
+  it("removes a task with its subtasks", () => {
+    const tasks = applyTimelineOps(applyTimelineOps([], PLAN), [{ op: "remove", id: "api" }]);
+    expect(tasks.map((task) => task.id)).toEqual(["photo", "spec", "ui", "e2e"]);
+  });
+
+  it("fills every unit when a task is completed", () => {
+    const tasks = applyTimelineOps(applyTimelineOps([], PLAN), [
+      { op: "update", id: "ui", status: "completed" },
     ]);
+    expect(tasks.find((task) => task.id === "ui")?.done).toEqual([5, 5]);
   });
 });
 
 describe("summarizeTimeline", () => {
   it("weights siblings and splits the bar by leaf status", () => {
     // Under photo (weights 1+3+2+2 = 8): spec 1 + api 3 done = 4/8, ui 2/5 of 2 = 0.8/8.
-    const summary = summarizeTimeline(parseTimelineTree(TREE));
+    const summary = summarizeTimeline(tree());
     expect(summary.shares.completed).toBeCloseTo(4.8 / 8);
     expect(summary.shares.in_progress).toBeCloseTo(1.2 / 8);
     expect(summary.shares.blocked).toBeCloseTo(2 / 8);
@@ -80,10 +94,16 @@ describe("summarizeTimeline", () => {
     expect(summary.status).toBe("in_progress");
   });
 
-  it("matches the plugin's example: weight 3 done beside weight 1 not started is 75%", () => {
+  it("matches the mod's example: weight 3 done beside weight 1 not started is 75%", () => {
     const summary = summarizeTimeline(
-      parseTimelineTree(
-        ["- [>] demo: demo (w=1)", "  - [x] a: a (w=3)", "  - [ ] b: b (w=1)"].join("\n"),
+      applyTimelineOps(
+        [],
+        [
+          { op: "add", id: "demo", title: "demo" },
+          { op: "add", id: "a", parent: "demo", weight: 3 },
+          { op: "add", id: "b", parent: "demo", weight: 1 },
+          { op: "update", id: "a", status: "completed" },
+        ],
       ),
     );
     expect(summary.shares.completed).toBeCloseTo(0.75);
@@ -93,20 +113,31 @@ describe("summarizeTimeline", () => {
 
   it("stays below 100% until every task is completed", () => {
     const almost = summarizeTimeline(
-      parseTimelineTree(
-        ["- [>] r: r (w=1)", "  - [x] a: a (w=1000000)", "  - [ ] b: b (w=1)"].join("\n"),
+      applyTimelineOps(
+        [],
+        [
+          { op: "add", id: "r" },
+          { op: "add", id: "a", parent: "r", weight: 1_000_000, status: "completed" },
+          { op: "add", id: "b", parent: "r" },
+        ],
       ),
     );
     expect(almost.shares.completed).toBeLessThan(1);
     const all = summarizeTimeline(
-      parseTimelineTree(["- [x] r: r (w=1)", "  - [x] a: a (w=1)"].join("\n")),
+      applyTimelineOps(
+        [],
+        [
+          { op: "add", id: "r" },
+          { op: "add", id: "a", parent: "r", status: "completed" },
+        ],
+      ),
     );
     expect(all.shares.completed).toBe(1);
     expect(all.status).toBe("completed");
   });
 
   it("gives each row its depth and its own completed share", () => {
-    const rows = summarizeTimeline(parseTimelineTree(TREE)).rows;
+    const rows = summarizeTimeline(tree()).rows;
     expect(rows.map((row) => [row.task.id, row.depth])).toEqual([
       ["photo", 0],
       ["spec", 1],
@@ -121,48 +152,38 @@ describe("summarizeTimeline", () => {
   });
 });
 
-describe("timelineToolOutputText", () => {
-  it.each([
-    { output: "tree", expected: "tree" },
-    { output: { content: "tree" }, expected: "tree" },
-    {
-      output: {
-        content: [
-          { type: "text", text: "tr" },
-          { type: "text", text: "ee" },
-        ],
-      },
-      expected: "tree",
-    },
-    { output: [{ type: "text", text: "tree" }], expected: "tree" },
-    { output: { content: [{ type: "image" }] }, expected: null },
-    { output: undefined, expected: null },
-  ])("reads $output", ({ output, expected }) => {
-    expect(timelineToolOutputText(output)).toBe(expected);
-  });
-});
-
 describe("latestTimelineSummary", () => {
-  const call = (toolName: string, output: unknown, status = "completed") => ({
+  const call = (
+    ops: unknown,
+    status = "completed",
+    toolName = "mcp__timeline__timeline_tasks",
+  ) => ({
     type: "dynamic_tool" as const,
     toolName,
     status,
-    output,
+    input: { ops },
   });
 
-  it("reads the newest completed timeline call with a tree", () => {
+  it("replays the finished timeline_tasks calls in order", () => {
     const summary = latestTimelineSummary([
-      call("mcp__timeline__timeline_tasks", { content: "- [ ] old: old (w=1)" }),
-      call("mcp__timeline__timeline_read", { content: "- [>] new: new (w=1, 1/2 done)" }),
-      call("mcp__timeline__timeline_tasks", { content: "Error: ops must be an array." }),
-      call("mcp__timeline__timeline_tasks", undefined, "running"),
-      call("mcp__other__tool", { content: "- [x] other: other (w=1)" }),
+      call(PLAN),
       { type: "assistant_message" as const },
+      call(PROGRESS),
+      call([{ op: "update", id: "e2e", status: "completed" }], "failed"),
+      call([{ op: "remove", id: "photo" }], "completed", "mcp__other__tool"),
+      {
+        type: "dynamic_tool" as const,
+        toolName: "mcp__timeline__timeline_tasks",
+        status: "completed",
+        input: "x",
+      },
     ]);
-    expect(summary?.rows.map((row) => row.task.id)).toEqual(["new"]);
+    expect(summary?.blocked.map((task) => task.id)).toEqual(["e2e"]);
+    expect(summary?.leaves).toEqual({ completed: 3, total: 5 });
   });
 
-  it("is null without a timeline call", () => {
-    expect(latestTimelineSummary([call("mcp__other__tool", { content: "x" })])).toBeNull();
+  it("is null without a timeline tree", () => {
+    expect(latestTimelineSummary([call([], "completed", "mcp__other__tool")])).toBeNull();
+    expect(latestTimelineSummary([call([{ op: "update", id: "x" }])])).toBeNull();
   });
 });
