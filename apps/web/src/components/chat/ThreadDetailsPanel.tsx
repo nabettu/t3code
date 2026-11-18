@@ -26,6 +26,8 @@ import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
+import { ThreadTimelineSection } from "./TimelineTasks";
+import type { TimelineSummary } from "./timelineTasks.logic";
 import {
   ThreadDetailsContext,
   ThreadDetailsUsage,
@@ -91,6 +93,7 @@ interface ThreadDetailsPanelProps extends Pick<
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
   usage: ThreadDetailsUsageInput;
+  timelineSummary: TimelineSummary | null;
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
@@ -282,6 +285,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   showLineage={visible.lineage}
                   showSideChats={visible.sideChats}
                 />
+              ) : null}
+
+              {density === "full" && props.timelineSummary !== null ? (
+                <ThreadTimelineSection summary={props.timelineSummary} />
               ) : null}
 
               {visible.usage ? <ThreadDetailsUsage {...props.usage} /> : null}

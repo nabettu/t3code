@@ -34,6 +34,7 @@ import { useRightPanelActions } from "./chat/useRightPanelActions";
 import { type TerminalLaunchContext, useChatTerminalActions } from "./chat/useChatTerminalActions";
 import { useComposerSend } from "./chat/useComposerSend";
 import { offeredNextActions } from "./chat/nextActions.logic";
+import { latestTimelineSummary } from "./chat/timelineTasks.logic";
 import { useComposerResume } from "./chat/useComposerResume";
 import { ThreadFind, ThreadFindCanvas } from "./chat/ThreadFindProvider";
 import { closeThreadFind, openThreadFind, useThreadFindOpen } from "./chat/threadFindStore";
@@ -3022,6 +3023,8 @@ export default function ChatView(props: ChatViewProps) {
       serverProjection?.runs ?? EMPTY_RUNS,
       serverProjection?.messages ?? [],
     )?.actions ?? null;
+  const timelineSummary =
+    serverProjection === null ? null : latestTimelineSummary(serverProjection.turnItems);
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,
@@ -3657,6 +3660,7 @@ export default function ChatView(props: ChatViewProps) {
                                 activeThread={activeThread}
                                 activeThreadRuns={serverProjection?.runs ?? EMPTY_RUNS}
                                 nextActions={nextActions}
+                                timelineSummary={timelineSummary}
                                 promptHistoryEntries={timelineEntries}
                                 forceExpandedOnMobile={
                                   forceExpandedMobileComposer && isDraftHeroState
@@ -3898,6 +3902,7 @@ export default function ChatView(props: ChatViewProps) {
 
                 <ThreadDetailsPanel
                   anchor={threadPanelPopoverAnchorRef}
+                  timelineSummary={timelineSummary}
                   handle={threadPanelPopoverHandle}
                   forceNewWorktree={multipleModelSelections !== null}
                   environmentId={activeThread.environmentId}

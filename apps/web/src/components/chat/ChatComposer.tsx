@@ -239,9 +239,11 @@ import { observeResize } from "~/lib/observeResize";
 
 const isEnvironmentRequestInvalidError = Schema.is(EnvironmentRequestInvalidError);
 import { toastManager } from "../ui/toast";
-import { BuildingIcon, PlayIcon, ReplyIcon, ArrowRightIcon } from "lucide-react";
+import { BuildingIcon, PlayIcon, ReplyIcon, ArrowRightIcon, ListTreeIcon } from "lucide-react";
 import type { NextAction } from "@t3tools/client-runtime/next-actions";
 import { ComposerNextActions } from "./ComposerNextActions";
+import { TimelineBannerTitle } from "./TimelineTasks";
+import type { TimelineSummary } from "./timelineTasks.logic";
 import { useNavigate } from "@tanstack/react-router";
 import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { assistantCitationNavigation } from "../../lib/assistantCitationNavigation";
@@ -373,6 +375,8 @@ export interface ChatComposerProps {
   activeThreadRuns: ReadonlyArray<OrchestrationV2Run>;
   /** Suggested follow-ups from the latest completed run's reply. */
   nextActions: ReadonlyArray<NextAction> | null;
+  /** The claude-timeline task tree of this thread, when its agent keeps one. */
+  timelineSummary: TimelineSummary | null;
   promptHistoryEntries: ReadonlyArray<TimelineEntry>;
   forceExpandedOnMobile: boolean;
   projectSelectionRequired: boolean;
@@ -507,6 +511,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThread,
     activeThreadRuns,
     nextActions,
+    timelineSummary,
     promptHistoryEntries,
     forceExpandedOnMobile,
     projectSelectionRequired,
@@ -2558,12 +2563,30 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       ]
     : [];
+  // A finished tree stays in the thread details card; the composer shows only work still open.
+  const timelineBannerItems: readonly ComposerBannerStackItem[] =
+    timelineSummary !== null && timelineSummary.status !== "completed"
+      ? [
+          {
+            id: "timeline-tasks",
+            variant: "default",
+            icon: <ListTreeIcon />,
+            title: <TimelineBannerTitle summary={timelineSummary} />,
+          },
+        ]
+      : [];
   const bannerItems: readonly ComposerBannerStackItem[] =
     runtimeModeCeilingDenial === undefined || activePendingProgress
-      ? [...props.bannerItems, ...replyBannerItems, ...nextActionBannerItems]
+      ? [
+          ...props.bannerItems,
+          ...replyBannerItems,
+          ...timelineBannerItems,
+          ...nextActionBannerItems,
+        ]
       : [
           ...props.bannerItems,
           ...replyBannerItems,
+          ...timelineBannerItems,
           ...nextActionBannerItems,
           {
             id: "managed-runtime-mode",
