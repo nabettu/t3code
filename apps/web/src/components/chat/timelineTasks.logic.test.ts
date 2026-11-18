@@ -93,6 +93,18 @@ describe("applyTimelineOps", () => {
     expect(tasks.find((task) => task.id === "ui")?.done).toBeUndefined();
   });
 
+  it("keeps a group's status after its subtasks go, as the mod does", () => {
+    const tasks = applyTimelineOps(
+      [],
+      [
+        { op: "add", id: "p" },
+        { op: "add", id: "c", parent: "p", status: "completed" },
+        { op: "remove", id: "c" },
+      ],
+    );
+    expect(tasks).toMatchObject([{ id: "p", status: "completed" }]);
+  });
+
   it("removes a task with its subtasks", () => {
     const tasks = applyTimelineOps(applyTimelineOps([], PLAN), [{ op: "remove", id: "api" }]);
     expect(tasks.map((task) => task.id)).toEqual(["photo", "spec", "ui", "e2e"]);
@@ -228,6 +240,7 @@ describe("formatTimelinePercent", () => {
     { share: 0.625, expected: "62.5%" },
     { share: 0.9999, expected: "99.9%" },
     { share: 1, expected: "100%" },
+    { share: 0.9999999999999999, expected: "100%" },
   ])("shows $share as $expected", ({ share, expected }) => {
     expect(formatTimelinePercent(share)).toBe(expected);
   });
@@ -235,7 +248,9 @@ describe("formatTimelinePercent", () => {
 
 describe("timelineRowWindow", () => {
   const rows = (statuses: string) =>
-    [...statuses].map((mark) => ({ status: mark === "x" ? "completed" : "pending" }) as const);
+    [...statuses].map(
+      (mark) => ({ status: mark === "x" ? "completed" : "pending", leaf: true }) as const,
+    );
 
   it("shows everything that fits", () => {
     expect(timelineRowWindow(rows("xxp"), 30)).toEqual({ start: 0, end: 3 });
@@ -246,6 +261,26 @@ describe("timelineRowWindow", () => {
       start: 8,
       end: 38,
     });
+  });
+
+  it("starts at the first open task without subtasks, not at its open parent", () => {
+    const tasks = summarizeTimeline(
+      applyTimelineOps(
+        [],
+        [
+          { op: "add", id: "p" },
+          ...Array.from({ length: 39 }, (_, index) => ({
+            op: "add",
+            id: `c${index}`,
+            parent: "p",
+            status: "completed",
+          })),
+          { op: "add", id: "now", parent: "p", status: "in_progress" },
+        ],
+      ),
+    ).rows;
+    const { start, end } = timelineRowWindow(tasks, 30);
+    expect(tasks.slice(start, end).map((row) => row.task.id)).toContain("now");
   });
 
   it("keeps the last rows when every row is completed", () => {

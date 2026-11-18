@@ -89,8 +89,14 @@ function leafMeasure(task: TimelineTask): Measure {
 
 function measureAll(tasks: readonly TimelineTask[]): Map<string | null, Measure> {
   const result = new Map<string | null, Measure>();
+  const children = new Map<string | null, TimelineTask[]>();
+  for (const task of tasks) {
+    const siblings = children.get(task.parent);
+    if (siblings === undefined) children.set(task.parent, [task]);
+    else siblings.push(task);
+  }
   const visit = (id: string | null): Measure | undefined => {
-    const kids = tasks.filter((task) => task.parent === id);
+    const kids = children.get(id) ?? [];
     if (kids.length === 0) return undefined;
     const values = kids.map((kid) => {
       const value = visit(kid.id) ?? leafMeasure(kid);
@@ -223,8 +229,9 @@ function withoutDone({ done: _done, ...rest }: TimelineTask): TimelineTask {
 /** A task with subtasks takes its status from them and keeps no units of its own. */
 function settleGroups(tasks: readonly TimelineTask[]): TimelineTask[] {
   const measures = measureAll(tasks);
+  const parents = new Set(tasks.map((task) => task.parent));
   return tasks.map((task) =>
-    tasks.some((kid) => kid.parent === task.id)
+    parents.has(task.id)
       ? { ...withoutDone(task), status: measures.get(task.id)?.status ?? task.status }
       : task,
   );
@@ -263,8 +270,8 @@ export function applyTimelineOps(
       if (op.parent !== undefined && !next.some((task) => task.id === op.parent)) continue;
       const state = resolveState(op.status, op.done, { status: "pending" });
       if (state === null) continue;
-      next = [
-        ...next.map((task) => (task.id === op.parent ? withoutDone(task) : task)),
+      next = settleGroups([
+        ...next,
         {
           id: op.id,
           parent: op.parent ?? null,
@@ -274,13 +281,13 @@ export function applyTimelineOps(
           ...(op.note === undefined ? {} : { note: op.note }),
           ...(state.done === undefined ? {} : { done: state.done }),
         },
-      ];
+      ]);
       continue;
     }
     if (current === undefined) continue;
     if (op.op === "remove") {
       const gone = descendantIds(next, op.id);
-      next = next.filter((task) => !gone.has(task.id));
+      next = settleGroups(next.filter((task) => !gone.has(task.id)));
       continue;
     }
     const isGroup = next.some((task) => task.parent === op.id);
@@ -293,9 +300,9 @@ export function applyTimelineOps(
       ...(op.note === undefined ? {} : { note: op.note }),
       ...state,
     };
+    next = settleGroups(next);
   }
-  // Group statuses depend only on their subtasks, so settling once matches settling per operation.
-  return settleGroups(next);
+  return next;
 }
 
 /** The tree the thread's finished `timeline_tasks` calls build, in order. */
@@ -325,18 +332,21 @@ export function latestTimelineSummary(
   return tasks.length === 0 ? null : summarizeTimeline(tasks);
 }
 
-/** Tenths, rounded down, so open work never reads 100%. */
+/**
+ * Tenths, rounded down, so open work (capped at 99.99%) never reads 100%; finished work can sum to
+ * a hair under 1 in floating point.
+ */
 export function formatTimelinePercent(share: number) {
-  return share >= 1 ? "100%" : `${(Math.floor(share * 1000) / 10).toFixed(1)}%`;
+  return share > 0.99995 ? "100%" : `${(Math.floor(share * 1000) / 10).toFixed(1)}%`;
 }
 
-/** Rows to show: from just before the first open row, else the last ones. */
+/** Rows to show: from just before the first open task without subtasks, else the last ones. */
 export function timelineRowWindow(
-  rows: ReadonlyArray<{ readonly status: TimelineTaskStatus }>,
+  rows: ReadonlyArray<{ readonly status: TimelineTaskStatus; readonly leaf: boolean }>,
   limit: number,
 ) {
   if (rows.length <= limit) return { start: 0, end: rows.length };
-  const open = rows.findIndex((row) => row.status !== "completed");
+  const open = rows.findIndex((row) => row.leaf && row.status !== "completed");
   const start = Math.min(Math.max(0, (open < 0 ? rows.length : open) - 2), rows.length - limit);
   return { start, end: start + limit };
 }
