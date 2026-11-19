@@ -13,9 +13,10 @@ import {
 import { todoProgressSummary, type TodoProgressSummary } from "./todoProgress.ts";
 
 /**
- * One progress tree for a thread: the claude-timeline task tree, the latest todo list and the
- * latest run's subagents. With one source its tasks are the tree; with several each becomes a
- * group, and groups weigh the same.
+ * One progress tree for a thread. The claude-timeline task tree is the trunk; the latest todo
+ * list breaks down its step in progress, and the latest run's subagents break down the running
+ * todo step (else the tree's step). A source that has a step to sit under shows only while it has
+ * open work, so a finished breakdown never marks the step itself done.
  */
 export type ThreadProgress = TimelineSummary;
 
@@ -123,26 +124,23 @@ export function threadProgress(
   threadIndex: ReadonlyMap<ThreadId, ProgressShell>,
 ): ThreadProgress | null {
   if (shell === null) return null;
-  const todo = shellTodo(shell);
-  const work = shell.childWork;
-  const sources = [
+  const tree =
     shell.timelineTasks != null && shell.timelineTasks.length > 0
-      ? { id: "group:tree", title: "Task tree", tasks: timelineSource(shell.timelineTasks) }
-      : null,
-    todo === null ? null : { id: "group:todo", title: "Todo", tasks: todoSource(todo) },
-    work == null || work.total === 0
-      ? null
-      : { id: "group:agents", title: "Agents", tasks: agentSource(work, threadIndex) },
-  ].filter((source) => source !== null);
-  if (sources.length === 0) return null;
-  const tasks =
-    sources.length === 1
-      ? sources[0]!.tasks(null)
-      : sources.flatMap((source) => [
-          task(source.id, null, source.title, "pending"),
-          ...source.tasks(source.id),
-        ]);
-  return summarizeTimeline(tasks);
+      ? timelineSource(shell.timelineTasks)(null)
+      : [];
+  const treeStep = tree.length === 0 ? null : (summarizeTimeline(tree).current?.id ?? null);
+  const todo = shellTodo(shell);
+  const showsTodo = todo !== null && (tree.length === 0 || todo.completed < todo.total);
+  const todoTasks = showsTodo ? todoSource(todo)(treeStep) : [];
+  const todoStep = showsTodo ? todo.steps.findIndex((step) => step.status === "running") : -1;
+  const work = shell.childWork;
+  const hasBase = tree.length > 0 || todoTasks.length > 0;
+  const showsAgents = work != null && work.total > 0 && (!hasBase || work.finished < work.total);
+  const agentTasks = showsAgents
+    ? agentSource(work, threadIndex)(todoStep >= 0 ? `todo:${todoStep}` : treeStep)
+    : [];
+  const tasks = [...tree, ...todoTasks, ...agentTasks];
+  return tasks.length === 0 ? null : summarizeTimeline(tasks);
 }
 
 /** Streaming updates that leave every row and share alone keep the previous value. */

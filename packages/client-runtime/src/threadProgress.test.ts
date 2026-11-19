@@ -63,28 +63,58 @@ describe("threadProgress", () => {
     expect(progress && progressPercentLabel(progress)).toBe("33%");
   });
 
-  it("puts each source under its own equally weighted group", () => {
+  it("breaks the tree's current step down into todo steps, and those into subagents", () => {
+    const tree = [
+      { id: "goal", parent: null, title: "Goal", status: "in_progress", weight: 1 },
+      { id: "a", parent: "goal", title: "A", status: "completed", weight: 1 },
+      { id: "b", parent: "goal", title: "B", status: "in_progress", weight: 2 },
+      { id: "c", parent: "goal", title: "C", status: "blocked", weight: 1, note: "waiting" },
+    ] as const;
     const progress = threadProgress(
-      shell({ todoProgress: todo, childWork, timelineTasks }),
+      shell({ todoProgress: todo, childWork, timelineTasks: tree }),
       new Map([[childId, childShell]]),
     );
     expect(titles(progress)).toEqual([
-      "Task tree:blocked",
-      "  Goal:blocked",
-      "    A:completed",
-      "    B:blocked",
-      "Todo:in_progress",
-      "  Read the code:completed",
-      "  Fix the bug:in_progress",
-      "  Test:pending",
-      "Agents:in_progress",
-      "  Child:in_progress",
-      "  Native:completed",
+      "Goal:in_progress",
+      "  A:completed",
+      "  B:in_progress",
+      "    Read the code:completed",
+      "    Fix the bug:in_progress",
+      "      Child:in_progress",
+      "      Native:completed",
+      "    Test:pending",
+      "  C:blocked",
     ]);
-    // Tree 1/2, todo 1/3, agents (1/4 + 1) / 2.
-    expect(progress?.shares.completed).toBeCloseTo((1 / 2 + 1 / 3 + 5 / 8) / 3);
-    expect(progress?.blocked.map((task) => task.title)).toEqual(["B"]);
-    expect(progress?.current?.title).toBe("Fix the bug");
+    // B weighs 2 of 4: todo 1/3 done, and "Fix the bug" is half its subagents' (1/4 + 1) / 2.
+    const b = (1 + 5 / 8) / 3;
+    expect(progress?.shares.completed).toBeCloseTo((1 + 2 * b) / 4);
+    expect(progress?.blocked.map((task) => task.title)).toEqual(["C"]);
+    expect(progress?.current?.title).toBe("Child");
+  });
+
+  it("leaves out a finished todo list or subagents once they would sit under a step", () => {
+    const steps = todo.steps.map((step) => ({ ...step, status: "completed" as const }));
+    const finishedTodo = { ...todo, completed: 3, steps };
+    const finishedWork = {
+      ...childWork,
+      finished: 2,
+      children: childWork.children.map((child) => ({ ...child, finished: true })),
+    };
+    const withTree = threadProgress(
+      shell({ todoProgress: finishedTodo, childWork: finishedWork, timelineTasks }),
+      new Map(),
+    );
+    expect(titles(withTree)).toEqual(["Goal:blocked", "  A:completed", "  B:blocked"]);
+    // Without a tree the todo list is the trunk and stays, done or not.
+    const withoutTree = threadProgress(
+      shell({ todoProgress: finishedTodo, childWork: finishedWork }),
+      new Map(),
+    );
+    expect(titles(withoutTree)).toEqual([
+      "Read the code:completed",
+      "Fix the bug:completed",
+      "Test:completed",
+    ]);
   });
 
   it("counts steps past the shell's trimmed list", () => {
