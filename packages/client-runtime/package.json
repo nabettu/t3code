@@ -111,9 +111,9 @@
       "types": "./src/todoProgress.ts",
       "default": "./src/todoProgress.ts"
     },
-    "./child-work-progress": {
-      "types": "./src/childWorkProgress.ts",
-      "default": "./src/childWorkProgress.ts"
+    "./thread-progress": {
+      "types": "./src/threadProgress.ts",
+      "default": "./src/threadProgress.ts"
     },
     "./next-actions": {
       "types": "./src/nextActions.ts",

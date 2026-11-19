@@ -1544,6 +1544,35 @@ it.effect("SQL shells flag only an active turn blocked solely on T3 thread waits
       status: "running" as const,
     };
 
+    // The claude-timeline tree replays its finished calls by ordinal, whatever order they land in.
+    const timelineCall = (name: string, ordinal: number, ops: unknown, status = "completed") =>
+      updateItem({
+        ...wait,
+        id: TurnItemId.make(`item:thread-wait:timeline:${name}`),
+        toolName: "mcp__timeline__timeline_tasks",
+        input: { ops },
+        ordinal,
+        status: status as "completed",
+        completedAt: at,
+      });
+    yield* timelineCall("progress", 41, [{ op: "update", id: "step", status: "completed" }]);
+    yield* timelineCall("plan", 40, [
+      { op: "add", id: "goal", title: "Goal" },
+      { op: "add", id: "step", parent: "goal", title: "Step" },
+    ]);
+    yield* timelineCall("failed", 42, [{ op: "remove", id: "goal" }], "failed");
+    const listedTimeline = (yield* store.getShellSnapshot()).threads.find(
+      (row) => row.id === threadId,
+    )?.timelineTasks;
+    for (const timelineTasks of [
+      (yield* store.getThreadShell(threadId))?.timelineTasks,
+      listedTimeline,
+    ]) {
+      assert.deepEqual(timelineTasks, [
+        { id: "goal", parent: null, title: "Goal", status: "completed", weight: 1 },
+        { id: "step", parent: "goal", title: "Step", status: "completed", weight: 1 },
+      ]);
+    }
     yield* updateItem({
       ...wait,
       id: TurnItemId.make("item:thread-wait:stale"),

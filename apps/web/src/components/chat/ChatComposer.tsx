@@ -243,7 +243,7 @@ import { BuildingIcon, PlayIcon, ReplyIcon, ArrowRightIcon, ListTreeIcon } from 
 import type { NextAction } from "@t3tools/client-runtime/next-actions";
 import { ComposerNextActions } from "./ComposerNextActions";
 import { TimelineBannerTitle } from "./TimelineTasks";
-import type { TimelineSummary } from "./timelineTasks.logic";
+import type { TimelineSummary } from "@t3tools/shared/timelineTasks";
 import { useNavigate } from "@tanstack/react-router";
 import { assistantCitationLabel } from "@t3tools/shared/assistantCitations";
 import { assistantCitationNavigation } from "../../lib/assistantCitationNavigation";
@@ -375,7 +375,7 @@ export interface ChatComposerProps {
   activeThreadRuns: ReadonlyArray<OrchestrationV2Run>;
   /** Suggested follow-ups from the latest completed run's reply. */
   nextActions: ReadonlyArray<NextAction> | null;
-  /** The claude-timeline task tree of this thread, when its agent keeps one. */
+  /** The thread's progress: its task tree, todo list and subagents. */
   timelineSummary: TimelineSummary | null;
   promptHistoryEntries: ReadonlyArray<TimelineEntry>;
   forceExpandedOnMobile: boolean;

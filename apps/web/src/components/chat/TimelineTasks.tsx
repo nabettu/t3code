@@ -9,7 +9,7 @@ import {
   type TimelineShares,
   type TimelineSummary,
   type TimelineTaskStatus,
-} from "./timelineTasks.logic";
+} from "@t3tools/shared/timelineTasks";
 
 const SEGMENTS = [
   { status: "completed", className: "bg-success" },
@@ -18,7 +18,7 @@ const SEGMENTS = [
 ] as const;
 
 /** Completed, in progress and blocked work side by side; the rest of the track is not started. */
-function TimelineBar({
+export function TimelineBar({
   shares,
   className,
 }: {
@@ -78,7 +78,7 @@ const STATUS_ICONS: Record<
 
 const ROW_LIMIT = 30;
 
-/** The task tree in the thread details card. */
+/** The thread's progress tree in the thread details card. */
 export function ThreadTimelineSection({ summary }: { readonly summary: TimelineSummary }) {
   const { start, end } = timelineRowWindow(summary.rows, ROW_LIMIT);
   const rows = summary.rows.slice(start, end);
@@ -86,7 +86,7 @@ export function ThreadTimelineSection({ summary }: { readonly summary: TimelineS
   return (
     <ThreadDetailsSection
       headingId="thread-details-timeline-heading"
-      title={`Task tree · ${summary.leaves.completed}/${summary.leaves.total}`}
+      title={`Progress · ${summary.leaves.completed}/${summary.leaves.total}`}
       actions={
         <span className="text-2xs text-muted-foreground tabular-nums">
           {formatTimelinePercent(summary.shares.completed)}
@@ -95,7 +95,7 @@ export function ThreadTimelineSection({ summary }: { readonly summary: TimelineS
     >
       <div className="flex flex-col gap-2 px-2.5 text-xs">
         <TimelineBar shares={summary.shares} className="text-muted-foreground" />
-        <ol className="grid gap-1" aria-label="Task tree">
+        <ol className="grid gap-1" aria-label="Progress">
           {start > 0 ? <li className="ps-5 text-muted-foreground">{start} earlier</li> : null}
           {rows.map((row) => {
             const { Icon, className } = STATUS_ICONS[row.status];
@@ -115,7 +115,8 @@ export function ThreadTimelineSection({ summary }: { readonly summary: TimelineS
                   >
                     {row.task.title}
                   </span>
-                  {row.task.weight !== 1 ? (
+                  {/* Only the timeline tree sets weights; a "N more" row weighs its rows. */}
+                  {row.task.weight !== 1 && row.task.id.startsWith("tree:") ? (
                     <span className="shrink-0 rounded border border-border/70 px-1 text-2xs text-muted-foreground tabular-nums">
                       w{row.task.weight}
                     </span>

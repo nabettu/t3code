@@ -2,13 +2,7 @@ import { useAtomMount } from "@effect/atom-react";
 import { asLaunchingThread } from "@t3tools/client-runtime/state/thread-inbox";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
-import { todoProgressSummary } from "@t3tools/client-runtime/todo-progress";
-import {
-  SidebarChildWork,
-  SidebarChildWorkList,
-  SidebarTodoProgress,
-  SidebarTodoSteps,
-} from "./SidebarTodoProgress";
+import { SidebarProgress, SidebarProgressRows } from "./SidebarProgress";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -105,7 +99,7 @@ import {
   ThreadSearchPullRequestNumber,
 } from "../ThreadStatusIndicators";
 import { pickSnoozePreset, resolveSnoozePresets, type SnoozePreset } from "../Sidebar.snooze";
-import { useChildWorkProgress, useThreadShell } from "../../state/entities";
+import { useThreadProgress, useThreadShell } from "../../state/entities";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "../ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
@@ -265,8 +259,7 @@ function SidebarThreadTooltip({
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
-  const todoProgress = todoProgressSummary(thread);
-  const childWork = useChildWorkProgress(scopeThreadRef(thread.environmentId, thread.id));
+  const progress = useThreadProgress(scopeThreadRef(thread.environmentId, thread.id));
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -358,8 +351,7 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
-        {todoProgress ? <SidebarTodoSteps progress={todoProgress} /> : null}
-        {childWork ? <SidebarChildWorkList progress={childWork} /> : null}
+        {progress ? <SidebarProgressRows progress={progress} /> : null}
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );
@@ -1105,14 +1097,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         <EnvironmentMachineIcon aria-hidden kind={props.environmentMachine} className="size-3.5" />
       </span>
     ) : null;
-  const todoProgress = todoProgressSummary(thread);
-  const childWork = useChildWorkProgress(scopeThreadRef(thread.environmentId, thread.id));
+  const progress = useThreadProgress(scopeThreadRef(thread.environmentId, thread.id));
   // Local customization: the list shows no branch, pull request, or diff details.
   const metaLineEmpty =
-    !showsScratchMachine &&
-    todoProgress === null &&
-    childWork === null &&
-    runningTerminalIds.length === 0;
+    !showsScratchMachine && progress === null && runningTerminalIds.length === 0;
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
       {showsScratchMachine ? (
@@ -1125,8 +1113,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           <span className="min-w-0 flex-1 truncate">{props.scratchMachineLabel}</span>
         </>
       ) : null}
-      {todoProgress ? <SidebarTodoProgress progress={todoProgress} /> : null}
-      {childWork ? <SidebarChildWork progress={childWork} /> : null}
+      {progress ? <SidebarProgress progress={progress} /> : null}
       {checkoutThread.branch || showsScratchMachine ? null : <span className="flex-1" />}
       {terminalStatusIcon}
       <span
@@ -1210,11 +1197,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {draftIndicator}
               {title}
-              {todoProgress && !multiline ? (
-                <SidebarTodoProgress progress={todoProgress} className="text-secondary-label" />
-              ) : null}
-              {childWork && !multiline ? (
-                <SidebarChildWork progress={childWork} className="text-secondary-label" />
+              {progress && !multiline ? (
+                <SidebarProgress progress={progress} className="text-secondary-label" />
               ) : null}
               {multiline ? titleLineIcons : null}
               {pinIndicator}

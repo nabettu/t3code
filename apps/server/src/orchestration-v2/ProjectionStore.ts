@@ -6,6 +6,11 @@ import {
   orchestrationV2ShellTodoProgress,
   pendingGuestMessageCount,
 } from "@t3tools/contracts";
+import {
+  shellTimelineTasks,
+  timelineTasksFromItems,
+  timelineTasksFromOps,
+} from "@t3tools/shared/timelineTasks";
 import { applyThreadPullRequestLinkUpdate } from "../sourceControl/threadPullRequests.ts";
 import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
@@ -1157,6 +1162,7 @@ type ShellThreadRow = {
   readonly has_actionable_proposed_plan: number;
   readonly latest_todo_plan_json: string | null;
   readonly latest_subagents_json: string | null;
+  readonly timeline_ops_json: string | null;
 };
 
 type ShellRunRow = {
@@ -1354,6 +1360,9 @@ const decodeShellSubagentsJson = Schema.decodeUnknownEffect(
       }),
     ),
   ),
+);
+const decodeTimelineOpsJson = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Array(Schema.Unknown)),
 );
 const decodePlanJson = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2PlanArtifactSchema),
@@ -1875,6 +1884,7 @@ export function threadShellFromProjection(
       latestOrchestrationV2TodoPlan(projection.plans, projection.runs),
     ),
     childWork: orchestrationV2ShellChildWork(projection.subagents, projection.runs),
+    timelineTasks: shellTimelineTasks(timelineTasksFromItems(projection.turnItems)),
     pendingBackgroundTasks: [...pendingBackgroundTasks],
     providerInstanceHistory: providerInstanceHistoryForShell({
       threadId: projection.thread.id,
@@ -2007,6 +2017,7 @@ type ShellThreadState = {
   readonly hasActionableProposedPlan: boolean;
   readonly todoProgress: OrchestrationV2ShellTodoProgress | null;
   readonly childWork: OrchestrationV2ShellChildWork | null;
+  readonly timelineTasks: OrchestrationV2ThreadShell["timelineTasks"];
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
@@ -2182,6 +2193,7 @@ function shellFromState(input: {
     hasActionableProposedPlan: input.state.hasActionableProposedPlan,
     todoProgress: input.state.todoProgress,
     childWork: input.state.childWork,
+    timelineTasks: input.state.timelineTasks,
     pendingBackgroundTasks: input.state.pendingBackgroundTasks,
     providerInstanceHistory: input.state.providerInstanceHistory,
     goal: input.state.goal,
@@ -8071,7 +8083,20 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ) newest
                 JOIN orchestration_v2_projection_subagents sub
                   ON sub.thread_id = t.thread_id AND sub.run_id IS newest.run_id
-              ) AS latest_subagents_json
+              ) AS latest_subagents_json,
+              (
+                -- Same filter as the partial index runMigrations adds, so only the tree's calls are read.
+                SELECT json_group_array(json(timeline_ops.ops))
+                FROM (
+                  SELECT json_extract(timeline_call.payload_json, '$.input.ops') AS ops
+                  FROM orchestration_v2_projection_turn_items timeline_call
+                  WHERE timeline_call.thread_id = t.thread_id
+                    AND timeline_call.type = 'dynamic_tool'
+                    AND json_extract(timeline_call.payload_json, '$.toolName') = 'mcp__timeline__timeline_tasks'
+                    AND timeline_call.status = 'completed'
+                  ORDER BY timeline_call.ordinal
+                ) timeline_ops
+              ) AS timeline_ops_json
             FROM orchestration_v2_projection_threads t
             LEFT JOIN orchestration_v2_projection_runs active ON active.run_id = (
               SELECT r.run_id
@@ -8732,6 +8757,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               : orchestrationV2ShellChildWork(
                   yield* decodeShellSubagentsJson(row.latest_subagents_json),
                   [],
+                ),
+          timelineTasks:
+            row.timeline_ops_json === null
+              ? null
+              : shellTimelineTasks(
+                  timelineTasksFromOps(yield* decodeTimelineOpsJson(row.timeline_ops_json)),
                 ),
           pendingBackgroundTasks,
           providerInstanceHistory: providerInstanceHistoryForShell({

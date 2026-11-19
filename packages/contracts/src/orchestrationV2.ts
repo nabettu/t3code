@@ -2207,6 +2207,18 @@ export const OrchestrationV2ShellTodoProgress = Schema.Struct({
 });
 export type OrchestrationV2ShellTodoProgress = typeof OrchestrationV2ShellTodoProgress.Type;
 
+/** A task of the claude-timeline tree, rebuilt by replaying its `timeline_tasks` calls. */
+export const OrchestrationV2ShellTimelineTask = Schema.Struct({
+  id: Schema.String,
+  parent: Schema.NullOr(Schema.String),
+  title: Schema.String,
+  status: Schema.Literals(["pending", "in_progress", "completed", "blocked"]),
+  weight: Schema.Number,
+  done: Schema.optionalKey(Schema.Tuple([Schema.Number, Schema.Number])),
+  note: Schema.optionalKey(Schema.String),
+});
+export type OrchestrationV2ShellTimelineTask = typeof OrchestrationV2ShellTimelineTask.Type;
+
 /** The subagents of the latest run that started any, trimmed for list rows. */
 export const OrchestrationV2ShellChildWork = Schema.Struct({
   runId: Schema.NullOr(RunId),
@@ -2347,6 +2359,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   /** Absent from older servers. */
   todoProgress: Schema.optional(Schema.NullOr(OrchestrationV2ShellTodoProgress)),
   childWork: Schema.optional(Schema.NullOr(OrchestrationV2ShellChildWork)),
+  /** The claude-timeline task tree, parents before children, trimmed for list rows. */
+  timelineTasks: Schema.optional(Schema.NullOr(Schema.Array(OrchestrationV2ShellTimelineTask))),
   pendingBackgroundTasks: Schema.optional(Schema.Array(OrchestrationV2PendingBackgroundTask)).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),

@@ -11,7 +11,7 @@ import {
 import { RowPressable } from "../../components/ui/RowPressable";
 import { CustomSnoozeSheet } from "./CustomSnoozeSheet";
 import { appAtomRegistry } from "../../state/atom-registry";
-import { useChildWorkProgress } from "../../state/entities";
+import { useThreadProgress } from "../../state/entities";
 import { threadArrangementOpenAtom } from "../../state/thread-order";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -35,7 +35,8 @@ import { toServerClock } from "@t3tools/client-runtime/clock";
 import type { SnoozePresetSetting } from "@t3tools/contracts/settings";
 import { canSnooze } from "@t3tools/client-runtime/state/thread-settled";
 import { threadChipCopyTarget } from "@t3tools/client-runtime/thread-reference";
-import { todoProgressSummary } from "@t3tools/client-runtime/todo-progress";
+import { progressPercentLabel } from "@t3tools/client-runtime/thread-progress";
+import { ProgressBar } from "./ThreadProgressBanner";
 import type { MenuAction } from "@react-native-menu/menu";
 import { memo, useCallback, useMemo, useState, type ComponentProps } from "react";
 import { Platform, Pressable, Text as RNText, useWindowDimensions, View } from "react-native";
@@ -764,8 +765,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const rowAppearance = getThreadListV2RowAppearance(theme, sidebarPane, selected);
 
   const rawStatus = resolveThreadListV2Status(thread);
-  const todoProgress = todoProgressSummary(thread);
-  const childWork = useChildWorkProgress({
+  const progress = useThreadProgress({
     environmentId: thread.environmentId,
     threadId: thread.id,
   });
@@ -795,12 +795,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   });
   const rowAccessibilityLabel = [
     baseAccessibilityLabel,
-    todoProgress && variant === "card"
-      ? `${todoProgress.completed} of ${todoProgress.total} steps done`
-      : null,
-    childWork && variant === "card"
-      ? `${childWork.finished} of ${childWork.total} subagents done`
-      : null,
+    progress && variant === "card" ? `${progressPercentLabel(progress)} done` : null,
   ]
     .filter((part) => part !== null)
     .join(", ");
@@ -1323,69 +1318,34 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           />
         </View>
       ) : null}
-      {todoProgress || childWork ? (
-        <View className="mt-1 flex-row items-center gap-4" style={{ paddingLeft: titleTextInset }}>
-          {todoProgress ? (
-            <View className="flex-row items-center gap-2">
-              <SymbolView
-                name="list.number"
-                size={12}
-                tintColorClassName={
-                  selected
-                    ? selectedThreadRowColors.iconTintClassName
-                    : rowAppearance.mutedIconTintClassName
-                }
-                type="monochrome"
-              />
-              <Text
-                className={cn(
-                  "text-xs tabular-nums",
-                  selected
-                    ? selectedThreadRowColors.mutedForegroundClassName
-                    : rowAppearance.tertiaryForegroundClassName,
-                )}
-                style={{ fontFamily: MONO_FONT }}
-              >
-                {todoProgress.completed}/{todoProgress.total}
-              </Text>
-              <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
-                <View
-                  className="h-full rounded-full bg-primary"
-                  style={{ width: `${(todoProgress.completed / todoProgress.total) * 100}%` }}
-                />
-              </View>
-            </View>
-          ) : null}
-          {childWork ? (
-            <View className="flex-row items-center gap-2">
-              <SymbolView
-                name="robot"
-                size={12}
-                tintColorClassName={
-                  selected
-                    ? selectedThreadRowColors.iconTintClassName
-                    : rowAppearance.mutedIconTintClassName
-                }
-                type="monochrome"
-              />
-              <Text
-                className={cn(
-                  "text-xs tabular-nums",
-                  selected
-                    ? selectedThreadRowColors.mutedForegroundClassName
-                    : rowAppearance.tertiaryForegroundClassName,
-                )}
-                style={{ fontFamily: MONO_FONT }}
-              >
-                {childWork.finished}/{childWork.total}
-              </Text>
-              <View className="h-1 w-10 overflow-hidden rounded-full bg-border">
-                <View
-                  className="h-full rounded-full bg-primary"
-                  style={{ width: `${(childWork.finished / childWork.total) * 100}%` }}
-                />
-              </View>
-            </View>
+      {progress ? (
+        <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
+          <SymbolView
+            name="list.bullet.indent"
+            size={12}
+            tintColorClassName={
+              selected
+                ? selectedThreadRowColors.iconTintClassName
+                : rowAppearance.mutedIconTintClassName
+            }
+            type="monochrome"
+          />
+          <Text
+            className={cn(
+              "text-xs tabular-nums",
+              selected
+                ? selectedThreadRowColors.mutedForegroundClassName
+                : rowAppearance.tertiaryForegroundClassName,
+            )}
+            style={{ fontFamily: MONO_FONT }}
+          >
+            {progressPercentLabel(progress)}
+          </Text>
+          <ProgressBar shares={progress.shares} className="w-10" />
+          {progress.blocked.length > 0 ? (
+            <Text className="text-xs text-danger-foreground">
+              {progress.blocked.length} blocked
+            </Text>
           ) : null}
         </View>
       ) : null}

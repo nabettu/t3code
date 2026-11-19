@@ -305,8 +305,16 @@ export function applyTimelineOps(
   return next;
 }
 
+/** Each call's `ops`, in call order; anything that is not an array adds nothing. */
+export function timelineTasksFromOps(calls: ReadonlyArray<unknown>): TimelineTask[] {
+  return applyTimelineOps(
+    [],
+    calls.flatMap((ops) => (Array.isArray(ops) ? ops : [])),
+  );
+}
+
 /** The tree the thread's finished `timeline_tasks` calls build, in order. */
-export function latestTimelineSummary(
+export function timelineTasksFromItems(
   items: ReadonlyArray<{
     readonly type: string;
     readonly toolName?: string | null;
@@ -314,22 +322,34 @@ export function latestTimelineSummary(
     readonly input?: unknown;
     readonly ordinal?: number;
   }>,
-): TimelineSummary | null {
-  // Older history pages are appended after the newer items, so order by ordinal.
-  const calls = items
+): TimelineTask[] {
+  const calls = [...items]
     .filter(
       (item) =>
         item.type === "dynamic_tool" &&
         item.status === "completed" &&
         item.toolName === TIMELINE_TASKS_TOOL,
     )
-    .toSorted((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
-  const ops = calls.flatMap((item) => {
-    const value = (item.input as { ops?: unknown } | null | undefined)?.ops;
-    return Array.isArray(value) ? value : [];
-  });
-  const tasks = applyTimelineOps([], ops);
-  return tasks.length === 0 ? null : summarizeTimeline(tasks);
+    .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+  return timelineTasksFromOps(
+    calls.map((item) => (item.input as { ops?: unknown } | null | undefined)?.ops),
+  );
+}
+
+const SHELL_TASK_LIMIT = 200;
+const SHELL_TASK_TEXT_LIMIT = 120;
+
+/**
+ * The tree trimmed for thread shells. A task is only added under an existing parent, so the first
+ * tasks always form a whole tree.
+ */
+export function shellTimelineTasks(tasks: readonly TimelineTask[]): TimelineTask[] | null {
+  if (tasks.length === 0) return null;
+  return tasks.slice(0, SHELL_TASK_LIMIT).map((task) => ({
+    ...task,
+    title: task.title.slice(0, SHELL_TASK_TEXT_LIMIT),
+    ...(task.note === undefined ? {} : { note: task.note.slice(0, SHELL_TASK_TEXT_LIMIT) }),
+  }));
 }
 
 /**

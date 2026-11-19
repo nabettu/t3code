@@ -352,5 +352,15 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
       "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
     ).pipe(Effect.annotateLogs({ divergent }));
   }
+  if (toMigrationInclusive === undefined) {
+    // Local customization, kept out of the numbered migrations so upstream ids never collide.
+    // Thread shells replay the claude-timeline tree; without it they read every tool payload.
+    yield* sql`
+      CREATE INDEX IF NOT EXISTS custom_turn_items_timeline_tasks_idx
+      ON orchestration_v2_projection_turn_items(thread_id, ordinal)
+      WHERE type = 'dynamic_tool'
+        AND json_extract(payload_json, '$.toolName') = 'mcp__timeline__timeline_tasks'
+    `;
+  }
   return executedMigrations;
 });

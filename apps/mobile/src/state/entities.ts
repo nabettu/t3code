@@ -230,8 +230,8 @@ export function useChildThreadInputs(ref: ScopedThreadRef) {
   return useAtomValue(environmentThreadShells.childThreadInputsAtom(ref));
 }
 
-export function useChildWorkProgress(ref: ScopedThreadRef) {
-  return useAtomValue(environmentThreadShells.childWorkProgressAtom(ref));
+export function useThreadProgress(ref: ScopedThreadRef) {
+  return useAtomValue(environmentThreadShells.threadProgressAtom(ref));
 }
 
 export function useSideChats(ref: ScopedThreadRef) {

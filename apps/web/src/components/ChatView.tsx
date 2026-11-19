@@ -34,7 +34,6 @@ import { useRightPanelActions } from "./chat/useRightPanelActions";
 import { type TerminalLaunchContext, useChatTerminalActions } from "./chat/useChatTerminalActions";
 import { useComposerSend } from "./chat/useComposerSend";
 import { offeredNextActions } from "./chat/nextActions.logic";
-import { latestTimelineSummary } from "./chat/timelineTasks.logic";
 import { useComposerResume } from "./chat/useComposerResume";
 import { ThreadFind, ThreadFindCanvas } from "./chat/ThreadFindProvider";
 import { closeThreadFind, openThreadFind, useThreadFindOpen } from "./chat/threadFindStore";
@@ -282,6 +281,7 @@ import {
   useThreadHistory,
   useQuietThreadShell,
   useThreadCheckpointSummaries,
+  useThreadProgress,
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
@@ -3023,8 +3023,7 @@ export default function ChatView(props: ChatViewProps) {
       serverProjection?.runs ?? EMPTY_RUNS,
       serverProjection?.messages ?? [],
     )?.actions ?? null;
-  const timelineSummary =
-    serverProjection === null ? null : latestTimelineSummary(serverProjection.turnItems);
+  const timelineSummary = useThreadProgress(routeThreadRef);
   const sendPreviewAnnotation = (
     annotation: PreviewAnnotationPayload,
     image: ComposerImageAttachment | null,

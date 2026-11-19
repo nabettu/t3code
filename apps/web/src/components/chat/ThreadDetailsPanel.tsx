@@ -27,7 +27,7 @@ import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
 import { ThreadTimelineSection } from "./TimelineTasks";
-import type { TimelineSummary } from "./timelineTasks.logic";
+import type { TimelineSummary } from "@t3tools/shared/timelineTasks";
 import {
   ThreadDetailsContext,
   ThreadDetailsUsage,

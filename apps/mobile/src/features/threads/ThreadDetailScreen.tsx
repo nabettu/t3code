@@ -14,7 +14,11 @@ import { mobilePreferencesAtom } from "../../state/preferences";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
 import type { NextAction } from "@t3tools/client-runtime/next-actions";
-import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
+import {
+  useChildThreadInputs,
+  useThreadProgress,
+  useThreadReportedModelSelection,
+} from "../../state/entities";
 import { UsageLimitRecoveryCard } from "./UsageLimitRecoveryCard";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import {
@@ -212,8 +216,7 @@ import { useThreadQueuedCount } from "./ThreadQueueControl";
 import { ThreadGuestShareBar } from "./ThreadGuestShareBar";
 import { ThreadSideChatsRow } from "./ThreadSideChatsRow";
 import { ThreadNextActions } from "./ThreadNextActions";
-import { ThreadTodoBanner } from "./ThreadTodoBanner";
-import { todoProgressSummary } from "@t3tools/client-runtime/todo-progress";
+import { ThreadProgressBanner } from "./ThreadProgressBanner";
 import { resolveOfferedNextActions } from "./nextActionOffer";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-scroll-position";
@@ -505,6 +508,10 @@ function ThreadDetailBody(
   const controlInsets = deriveBottomControlInsets(nativeMetrics);
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const childThreadInputs = useChildThreadInputs({
+    environmentId: props.environmentId,
+    threadId: props.selectedThread.id,
+  });
+  const threadProgress = useThreadProgress({
     environmentId: props.environmentId,
     threadId: props.selectedThread.id,
   });
@@ -1793,10 +1800,7 @@ function ThreadDetailBody(
                         />
                       </Animated.View>
                     ) : null}
-                    <ThreadTodoBanner
-                      key={selectedThreadKey}
-                      progress={todoProgressSummary(props.selectedThread)}
-                    />
+                    <ThreadProgressBanner key={selectedThreadKey} progress={threadProgress} />
                     <ThreadNextActions
                       actions={nextActions}
                       onSend={(action) => handleNextAction(action, "send")}

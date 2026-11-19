@@ -3,10 +3,11 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   applyTimelineOps,
   formatTimelinePercent,
-  latestTimelineSummary,
+  shellTimelineTasks,
   summarizeTimeline,
   timelineRowWindow,
-} from "./timelineTasks.logic";
+  timelineTasksFromItems,
+} from "./timelineTasks.ts";
 
 const PLAN = [
   { op: "add", id: "photo", title: "写真の並べ替え" },
@@ -190,7 +191,7 @@ describe("summarizeTimeline", () => {
   });
 });
 
-describe("latestTimelineSummary", () => {
+describe("timelineTasksFromItems", () => {
   const call = (
     ops: unknown,
     status = "completed",
@@ -203,34 +204,54 @@ describe("latestTimelineSummary", () => {
   });
 
   it("replays the finished timeline_tasks calls in order", () => {
-    const summary = latestTimelineSummary([
-      call(PLAN),
-      { type: "assistant_message" as const },
-      call(PROGRESS),
-      call([{ op: "update", id: "e2e", status: "completed" }], "failed"),
-      call([{ op: "remove", id: "photo" }], "completed", "mcp__other__tool"),
-      {
-        type: "dynamic_tool" as const,
-        toolName: "mcp__timeline__timeline_tasks",
-        status: "completed",
-        input: "x",
-      },
-    ]);
+    const summary = summarizeTimeline(
+      timelineTasksFromItems([
+        call(PLAN),
+        { type: "assistant_message" as const },
+        call(PROGRESS),
+        call([{ op: "update", id: "e2e", status: "completed" }], "failed"),
+        call([{ op: "remove", id: "photo" }], "completed", "mcp__other__tool"),
+        {
+          type: "dynamic_tool" as const,
+          toolName: "mcp__timeline__timeline_tasks",
+          status: "completed",
+          input: "x",
+        },
+      ]),
+    );
     expect(summary?.blocked.map((task) => task.id)).toEqual(["e2e"]);
     expect(summary?.leaves).toEqual({ completed: 3, total: 5 });
   });
 
   it("replays in ordinal order, since older history is appended at the end", () => {
-    const summary = latestTimelineSummary([
-      { ...call(PROGRESS), ordinal: 2 },
-      { ...call(PLAN), ordinal: 1 },
-    ]);
+    const summary = summarizeTimeline(
+      timelineTasksFromItems([
+        { ...call(PROGRESS), ordinal: 2 },
+        { ...call(PLAN), ordinal: 1 },
+      ]),
+    );
     expect(summary?.leaves).toEqual({ completed: 3, total: 5 });
   });
 
   it("is null without a timeline tree", () => {
-    expect(latestTimelineSummary([call([], "completed", "mcp__other__tool")])).toBeNull();
-    expect(latestTimelineSummary([call([{ op: "update", id: "x" }])])).toBeNull();
+    expect(timelineTasksFromItems([call([], "completed", "mcp__other__tool")])).toEqual([]);
+    expect(timelineTasksFromItems([call([{ op: "update", id: "x" }])])).toEqual([]);
+  });
+});
+
+describe("shellTimelineTasks", () => {
+  it("keeps the first tasks, so every kept task still has its parent", () => {
+    const ops = Array.from({ length: 205 }, (_, index) => ({
+      op: "add",
+      id: `t${index}`,
+      ...(index === 0 ? {} : { parent: `t${index - 1}` }),
+      title: "x".repeat(200),
+    }));
+    const kept = shellTimelineTasks(applyTimelineOps([], ops));
+    expect(kept).toHaveLength(200);
+    expect(kept?.at(-1)?.parent).toBe("t198");
+    expect(kept?.[0]?.title).toHaveLength(120);
+    expect(shellTimelineTasks([])).toBeNull();
   });
 });
 
