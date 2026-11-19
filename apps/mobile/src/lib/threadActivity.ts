@@ -3,6 +3,7 @@ import type {
   ThreadPendingUserInput,
 } from "@t3tools/client-runtime/state/thread-requests";
 import { linkRequestTargetName } from "@t3tools/client-runtime/link-request";
+import { todoListLabel, todoStepLines } from "@t3tools/client-runtime/todo-progress";
 import { turnItemIsWorkspacePreparation } from "@t3tools/client-runtime/state/turn-item-presentation";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
@@ -464,6 +465,7 @@ function itemIsProminent(item: OrchestrationV2TurnItem): boolean {
     item.type === "thread_created" ||
     item.type === "system_notice" ||
     item.type === "proposed_plan" ||
+    item.type === "todo_list" ||
     item.type === "secret_request" ||
     item.type === "link_request"
   );
@@ -667,7 +669,7 @@ function itemSummary(
     case "proposed_plan":
       return "Proposed plan";
     case "todo_list":
-      return "Plan updated";
+      return todoListLabel(item.steps);
     case "user_message":
       return "User message";
     case "assistant_message":
@@ -719,7 +721,7 @@ function itemPreview(item: OrchestrationV2TurnItem): string | null {
     case "proposed_plan":
       return item.markdown || null;
     case "todo_list":
-      return `${item.steps.filter((step) => step.status === "completed").length}/${item.steps.length} completed`;
+      return null;
     case "user_message":
     case "assistant_message":
       return item.text || null;
@@ -834,11 +836,13 @@ function toFeedActivity(
   const getFullDetail = memoizeValue(() =>
     item.type === "proposed_plan"
       ? item.markdown
-      : readPaths
-        ? readPaths.join("\n") || null
-        : item.type === "notification"
-          ? item.detail?.trim() || null
-          : formatItemFullDetail(row, item),
+      : item.type === "todo_list"
+        ? todoStepLines(item.steps) || null
+        : readPaths
+          ? readPaths.join("\n") || null
+          : item.type === "notification"
+            ? item.detail?.trim() || null
+            : formatItemFullDetail(row, item),
   );
   const getCopyText = memoizeValue(() =>
     item.type === "proposed_plan"
@@ -2412,7 +2416,7 @@ export function buildThreadFeed(
     const row = visibleTurnItems[index]!;
     const item = row.item;
     if (turnItemIsWorkspacePreparation(item) && !item.deferredWork) continue;
-    if (item.type === "todo_list" || item.type === "checkpoint") continue;
+    if (item.type === "checkpoint") continue;
     if (
       item.type === "user_message" &&
       item.inputIntent === "queued_turn" &&
