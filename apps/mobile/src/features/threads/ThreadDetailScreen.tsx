@@ -212,6 +212,8 @@ import { useThreadQueuedCount } from "./ThreadQueueControl";
 import { ThreadGuestShareBar } from "./ThreadGuestShareBar";
 import { ThreadSideChatsRow } from "./ThreadSideChatsRow";
 import { ThreadNextActions } from "./ThreadNextActions";
+import { ThreadTodoBanner } from "./ThreadTodoBanner";
+import { todoProgressSummary } from "@t3tools/client-runtime/todo-progress";
 import { resolveOfferedNextActions } from "./nextActionOffer";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-scroll-position";
@@ -1791,6 +1793,10 @@ function ThreadDetailBody(
                         />
                       </Animated.View>
                     ) : null}
+                    <ThreadTodoBanner
+                      key={selectedThreadKey}
+                      progress={todoProgressSummary(props.selectedThread)}
+                    />
                     <ThreadNextActions
                       actions={nextActions}
                       onSend={(action) => handleNextAction(action, "send")}

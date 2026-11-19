@@ -5,6 +5,7 @@ import {
   CheckpointScopeId,
   RuntimeRequestId,
   NodeId,
+  PlanId,
   ProviderInstanceId,
   ProviderDriverKind,
   ProviderThreadId,
@@ -104,16 +105,16 @@ it("keeps an MCP app call's tool activity beside its app card", () => {
 });
 
 it("shows a todo update as its own row that opens to every step", () => {
-  const item = {
+  const item: OrchestrationV2TurnItem = {
     ...base("todo", "2026-08-29T00:00:00.000Z", 1),
     type: "todo_list",
-    planId: "plan-todo",
+    planId: PlanId.make("plan-todo"),
     steps: [
       { id: "1", text: "Read the code", status: "completed" },
       { id: "2", text: "Write the fix", status: "running" },
       { id: "3", text: "Run tests", status: "pending" },
     ],
-  } as OrchestrationV2TurnItem;
+  };
 
   const presented = deriveThreadFeedPresentation(
     buildThreadFeed([
@@ -133,6 +134,7 @@ it("shows a todo update as its own row that opens to every step", () => {
   ]);
   const activity = presented[2]?.type === "activity-group" ? presented[2].activities[0] : null;
   expect(activity?.summary).toBe("Tasks 1/3 · Write the fix");
+  expect(activity?.icon).toBe("list");
   expect(activity?.canExpand).toBe(true);
   expect(activity?.getFullDetail()).toBe("✓ Read the code\n◉ Write the fix\n○ Run tests");
 });

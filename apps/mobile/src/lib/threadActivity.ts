@@ -103,6 +103,7 @@ export interface ThreadFeedActivity {
   readonly icon:
     | "agent"
     | "alert"
+    | "list"
     | "browser"
     | "computer"
     | "code"
@@ -580,8 +581,9 @@ function itemIcon(item: OrchestrationV2TurnItem): ThreadFeedActivity["icon"] {
         : "alert";
     case "checkpoint":
     case "proposed_plan":
-    case "todo_list":
       return "check";
+    case "todo_list":
+      return "list";
     case "compaction":
     case "handoff":
     case "fork":
