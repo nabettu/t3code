@@ -287,7 +287,28 @@ it.each([
     recreated: false,
   },
   { label: "a relative path", worktreePath: "project/feature-restore", recreated: false },
-])("recreates a missing worktree only at the managed location: $label", async (input) => {
+  {
+    // `wt new` and hermes put worktrees next to the checkout as `<repo>-<name>`.
+    label: "a '<repo>-<name>' folder next to the project checkout",
+    worktreePath: "/tmp/provider-turn-start-project-hermes-t_1",
+    recreated: true,
+  },
+  {
+    label: "a sibling folder without the project's name as a prefix",
+    worktreePath: "/tmp/provider-turn-start-other",
+    recreated: false,
+  },
+  {
+    label: "a folder below a '<repo>-<name>' sibling",
+    worktreePath: "/tmp/provider-turn-start-project-hermes-t_1/nested",
+    recreated: false,
+  },
+  {
+    label: "'..' out of a '<repo>-<name>' sibling",
+    worktreePath: "/tmp/provider-turn-start-project-x/../elsewhere",
+    recreated: false,
+  },
+])("recreates a missing worktree only at a worktree location: $label", async (input) => {
   const harness = startWithMissingWorktree(input.worktreePath, input.realPaths);
   await harness.start;
   expect(harness.createWorktree).toHaveBeenCalledTimes(input.recreated ? 1 : 0);

@@ -79,6 +79,19 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
     Effect.orElseSucceed(() => undefined),
   );
 
+  // Worktrees made outside T3 (`git worktree add ../<repo>-<name>`) sit next to the checkout.
+  const isCheckoutSibling = (worktreePath: string, workspaceRoot: string) => {
+    const root = path.resolve(workspaceRoot);
+    const name = path.basename(worktreePath);
+    return (
+      path.isAbsolute(worktreePath) &&
+      path.resolve(worktreePath) === worktreePath &&
+      path.dirname(worktreePath) === path.dirname(root) &&
+      name.startsWith(`${path.basename(root)}-`) &&
+      name.length > path.basename(root).length + 1
+    );
+  };
+
   // Only folders holding nothing but leftovers are cleared, never user files.
   const isLeftoverFolder = (worktreePath: string) =>
     fileSystem.exists(path.join(worktreePath, ".git")).pipe(
@@ -175,16 +188,17 @@ export const makeRestoreMissingWorktree = Effect.gen(function* () {
   return Effect.fn("restoreMissingWorktree")(function* (thread: WorktreeThread) {
     const { worktreePath, branch } = thread;
     if (worktreePath === null) return;
-    const managed = yield* isManagedWorktreePath(worktreePath);
-    if (branch === null && !managed) return yield* recreateScratchFolder(thread, worktreePath);
-    const exists = yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true));
-    const leftover = exists && (yield* isLeftoverFolder(worktreePath));
-    if ((exists && !leftover) || !managed) return;
     const project = yield* projects.getById(thread.projectId).pipe(
       Effect.map(Option.getOrUndefined),
       Effect.orElseSucceed(() => undefined),
     );
-    if (project === undefined) return;
+    const managed =
+      (yield* isManagedWorktreePath(worktreePath)) ||
+      (project !== undefined && isCheckoutSibling(worktreePath, project.workspaceRoot));
+    if (branch === null && !managed) return yield* recreateScratchFolder(thread, worktreePath);
+    const exists = yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true));
+    const leftover = exists && (yield* isLeftoverFolder(worktreePath));
+    if ((exists && !leftover) || !managed || project === undefined) return;
     yield* Effect.logWarning("recreating missing worktree", {
       threadId: thread.id,
       worktreePath,
