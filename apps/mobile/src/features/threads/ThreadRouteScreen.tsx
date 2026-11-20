@@ -1130,8 +1130,9 @@ function ThreadRouteContent(
           onSendMessage={composer.onSendMessage}
           offersSideChat={composer.sideChatUnavailableReason === null}
           onReconnectEnvironment={handleReconnectEnvironment}
-          // Phones only: a split view keeps the thread list beside the chat.
-          onSettle={canOperateThread && !layout.usesSplitView ? handleSettleAndClose : undefined}
+          // Split views (an unfolded Duo, iPad) show it too: settling from the chat is quicker than
+          // finding the row in the list beside it.
+          onSettle={canOperateThread ? handleSettleAndClose : undefined}
           canSwitchThreadProvider={composer.canSwitchThreadProvider}
           onRespondToApproval={requests.onRespondToApproval}
           onSelectUserInputOption={requests.onSelectUserInputOption}
