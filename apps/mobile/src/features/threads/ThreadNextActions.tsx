@@ -1,4 +1,4 @@
-import type { NextAction } from "@t3tools/client-runtime/next-actions";
+import type { NextAction } from "@t3tools/shared/nextActions";
 import * as Haptics from "expo-haptics";
 import { Platform, Pressable, ScrollView } from "react-native";
 

@@ -115,10 +115,6 @@
       "types": "./src/threadProgress.ts",
       "default": "./src/threadProgress.ts"
     },
-    "./next-actions": {
-      "types": "./src/nextActions.ts",
-      "default": "./src/nextActions.ts"
-    },
     "./media-reference": {
       "types": "./src/mediaReference.ts",
       "default": "./src/mediaReference.ts"

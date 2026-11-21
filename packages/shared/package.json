@@ -67,6 +67,10 @@
       "types": "./src/advertisedEndpoint.ts",
       "import": "./src/advertisedEndpoint.ts"
     },
+    "./nextActions": {
+      "types": "./src/nextActions.ts",
+      "import": "./src/nextActions.ts"
+    },
     "./agentAwareness": {
       "types": "./src/agentAwareness.ts",
       "import": "./src/agentAwareness.ts"

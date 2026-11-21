@@ -240,7 +240,7 @@ import { observeResize } from "~/lib/observeResize";
 const isEnvironmentRequestInvalidError = Schema.is(EnvironmentRequestInvalidError);
 import { toastManager } from "../ui/toast";
 import { BuildingIcon, PlayIcon, ReplyIcon, ArrowRightIcon, ListTreeIcon } from "lucide-react";
-import type { NextAction } from "@t3tools/client-runtime/next-actions";
+import type { NextAction } from "@t3tools/shared/nextActions";
 import { ComposerNextActions } from "./ComposerNextActions";
 import { TimelineBannerTitle } from "./TimelineTasks";
 import type { TimelineSummary } from "@t3tools/shared/timelineTasks";

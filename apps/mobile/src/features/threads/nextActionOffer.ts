@@ -1,4 +1,4 @@
-import { type NextAction, splitNextActions } from "@t3tools/client-runtime/next-actions";
+import { type NextAction, splitNextActions } from "@t3tools/shared/nextActions";
 
 import type { ThreadFeedEntry, ThreadFeedLatestRun } from "../../lib/threadActivity";
 

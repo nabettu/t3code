@@ -40,7 +40,7 @@ import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import { useViewabilityAmount, type LegendListRef } from "@legendapp/list/react-native";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { HandoffEndpoints } from "@t3tools/client-runtime/handoff";
-import { splitNextActions } from "@t3tools/client-runtime/next-actions";
+import { splitNextActions } from "@t3tools/shared/nextActions";
 import {
   IDLE_COMPACTING_LABELS,
   resolveUserMessageFileCards,

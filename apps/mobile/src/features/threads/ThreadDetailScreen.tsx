@@ -13,7 +13,7 @@ import { useAtomMount, useAtomValue } from "@effect/atom-react";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
-import type { NextAction } from "@t3tools/client-runtime/next-actions";
+import type { NextAction } from "@t3tools/shared/nextActions";
 import {
   useChildThreadInputs,
   useThreadProgress,

@@ -1,4 +1,4 @@
-import type { NextAction } from "@t3tools/client-runtime/next-actions";
+import type { NextAction } from "@t3tools/shared/nextActions";
 import { PencilIcon } from "lucide-react";
 
 import { Button } from "../ui/button";

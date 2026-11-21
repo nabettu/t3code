@@ -1,5 +1,5 @@
 import type { OrchestrationV2ConversationMessage, OrchestrationV2Run } from "@t3tools/contracts";
-import { splitNextActions } from "@t3tools/client-runtime/next-actions";
+import { splitNextActions } from "@t3tools/shared/nextActions";
 
 import type { Thread } from "../../types";
 import { offeredPromptSuggestion } from "./usePromptSuggestion";
