@@ -26,6 +26,8 @@ export function installAgentNotificationNavigation(navigate: (href: string) => v
   });
 
   const handleResponse = (response: Notifications.NotificationResponse): void => {
+    // Watch push buttons run natively in the background; only taps open the thread.
+    if (response.actionIdentifier.startsWith("t3-watch-")) return;
     routeAgentNotificationResponseOnce({ handledResponseIds, response, navigate });
   };
   const subscription = Notifications.addNotificationResponseReceivedListener(handleResponse);

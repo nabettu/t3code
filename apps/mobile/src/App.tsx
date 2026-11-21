@@ -37,6 +37,7 @@ import {
   installAgentNotificationNavigation,
   setAgentNotificationPathname,
 } from "./features/agent-awareness/notificationNavigation";
+import { installWatchPushRegistration } from "./features/agent-awareness/watchPushRegistration";
 import {
   installAppShortcuts,
   recordAppShortcutNavigationState,
@@ -210,6 +211,7 @@ const appServiceDisposers = [
   installComposerAttachmentUploads(),
   startIncomingShareInbox(),
   installAgentNotificationNavigation(linkToAppPath),
+  installWatchPushRegistration(),
   installAppShortcuts(linkToAppPath),
   installAppUpdateChecks(),
   installShowcaseCapture(rootPathnameFromState),
