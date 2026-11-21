@@ -58,6 +58,8 @@ interface ActionTarget extends WatchPushActionTarget {
   readonly expiresAtMs: number;
   /** The session of the one device this token was sent to; the press only counts while it lives. */
   readonly sessionId: string;
+  /** Shared by every device's token for one notification: the first press answers for all. */
+  readonly notificationId: string;
 }
 
 const ACTION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -262,6 +264,7 @@ const make = Effect.gen(function* () {
     const jwt = jwtFor(config, Math.floor(now / 1000));
     const dead = new Set<string>();
     let delivered = false;
+    const notificationId = yield* randomText(12);
     for (const device of devices) {
       // One token per device, so each press is checked against that device's own session.
       const token = content.target === null ? null : yield* randomText(24);
@@ -272,6 +275,7 @@ const make = Effect.gen(function* () {
           prompts: content.target.prompts,
           expiresAtMs: now + ACTION_TTL_MS,
           sessionId: device.sessionId,
+          notificationId,
         });
       }
       const payload = buildWatchPushApnsPayload({
@@ -380,27 +384,52 @@ const make = Effect.gen(function* () {
 
   const dispatchFailure = () => failure("The thread didn't take the action.");
 
+  const claimNotification = (notificationId: string) => {
+    const claimed: Array<[string, ActionTarget]> = [];
+    for (const [token, target] of targets) {
+      if (target.notificationId !== notificationId) continue;
+      claimed.push([token, target]);
+      targets.delete(token);
+    }
+    return () => {
+      for (const [token, target] of claimed) targets.set(token, target);
+    };
+  };
+
   const runAction = Effect.fn("WatchPush.runAction")(function* (
     token: string,
     action: WatchPushAction,
   ) {
     const target = targets.get(token);
-    if (target === undefined || target.expiresAtMs <= (yield* nowMs)) {
+    const now = yield* nowMs;
+    if (target === undefined || target.expiresAtMs <= now) {
       targets.delete(token);
       return yield* failure("This notification has expired or was already answered.");
     }
-    if (!(yield* operateSessionIds).has(target.sessionId)) {
-      targets.delete(token);
-      return yield* failure("This phone's connection was revoked.");
+    // Claimed synchronously, before anything async, so a second press or phone finds it gone.
+    const release = claimNotification(target.notificationId);
+    const command = watchPushActionCommand(
+      target,
+      action,
+      CommandId.make(`watch-push:${target.notificationId}`),
+    );
+    if (typeof command === "string") {
+      release();
+      return yield* failure(command);
     }
-    const command = watchPushActionCommand(target, action, CommandId.make(`watch-push:${token}`));
-    if (typeof command === "string") return yield* failure(command);
-    // Claimed before dispatch, so a second press can't also answer; given back if it doesn't land.
     yield* Effect.uninterruptible(
-      Effect.sync(() => targets.delete(token)).pipe(
-        Effect.andThen(threads.dispatch(command)),
-        Effect.mapError(dispatchFailure),
-        Effect.tapError(() => Effect.sync(() => targets.set(token, target))),
+      operateSessionIds.pipe(
+        Effect.flatMap((allowed) =>
+          allowed.has(target.sessionId)
+            ? threads.dispatch(command).pipe(
+                Effect.mapError(dispatchFailure),
+                Effect.tapError(() => Effect.sync(release)),
+              )
+            : Effect.sync(release).pipe(
+                Effect.andThen(Effect.sync(() => targets.delete(token))),
+                Effect.andThen(Effect.fail(failure("This phone's connection was revoked."))),
+              ),
+        ),
       ),
     );
   });
