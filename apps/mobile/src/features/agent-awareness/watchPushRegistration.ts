@@ -3,7 +3,7 @@ import { WS_METHODS, type EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { appAtomRegistry } from "../../state/atom-registry";
@@ -18,8 +18,13 @@ const registerDevice = createEnvironmentRpcCommand(connectionAtomRuntime, {
   tag: WS_METHODS.watchPushRegisterDevice,
 });
 
+interface Target {
+  readonly environmentId: EnvironmentId;
+  readonly httpBaseUrl: string;
+}
+
 const connectedTargetsAtom = Atom.make((get) =>
-  Object.values(get(savedConnectionsByIdAtom)).flatMap((connection) =>
+  Object.values(get(savedConnectionsByIdAtom)).flatMap((connection): Array<Target> =>
     get(environmentConnectedAtom(connection.environmentId))
       ? [{ environmentId: connection.environmentId, httpBaseUrl: connection.httpBaseUrl }]
       : [],
@@ -36,17 +41,18 @@ async function readDeviceToken(): Promise<string | null> {
 /**
  * Hands each connected server this phone's APNs token and the address it reaches that server at,
  * so the server can push approval and next-action alerts whose buttons post straight back to it.
- * Servers without the method refuse once per launch, which is fine.
+ * Re-sends when the token, the address or the permission changes, and after a failed attempt.
  */
 export function installWatchPushRegistration(): () => void {
   if (Platform.OS !== "ios") return () => {};
   const apsEnvironment = resolveApsEnvironment(Constants.expoConfig?.extra?.appVariant);
-  const sent = new Set<string>();
+  const bundleId = Constants.expoConfig?.ios?.bundleIdentifier;
+  // What each server last accepted (or is being sent), so an A→B→A route change re-sends A.
+  const registered = new Map<EnvironmentId, string>();
   let token: Promise<string | null> | null = null;
 
-  const register = async (
-    targets: ReadonlyArray<{ environmentId: EnvironmentId; httpBaseUrl: string }>,
-  ) => {
+  const register = async () => {
+    const targets = appAtomRegistry.get(connectedTargetsAtom);
     if (targets.length === 0) return;
     token ??= readDeviceToken().catch(() => null);
     const deviceToken = await token;
@@ -55,17 +61,47 @@ export function installWatchPushRegistration(): () => void {
       return;
     }
     for (const target of targets) {
-      const key = `${target.environmentId}|${deviceToken}|${target.httpBaseUrl}`;
-      if (sent.has(key) || !/^https?:\/\//.test(target.httpBaseUrl)) continue;
-      sent.add(key);
-      void registerDevice.run(appAtomRegistry, {
-        environmentId: target.environmentId,
-        input: { token: deviceToken, apsEnvironment, actionBaseUrl: target.httpBaseUrl },
-      });
+      const key = `${deviceToken}|${target.httpBaseUrl}`;
+      if (registered.get(target.environmentId) === key) continue;
+      if (!/^https?:\/\//.test(target.httpBaseUrl)) continue;
+      registered.set(target.environmentId, key);
+      void registerDevice
+        .run(appAtomRegistry, {
+          environmentId: target.environmentId,
+          input: {
+            token: deviceToken,
+            apsEnvironment,
+            actionBaseUrl: target.httpBaseUrl,
+            ...(bundleId ? { bundleId } : {}),
+          },
+        })
+        .then((result) => {
+          if (result._tag !== "Success" && registered.get(target.environmentId) === key) {
+            registered.delete(target.environmentId);
+          }
+        });
     }
   };
 
-  return appAtomRegistry.subscribe(connectedTargetsAtom, (targets) => void register(targets), {
-    immediate: true,
+  const unsubscribeTargets = appAtomRegistry.subscribe(
+    connectedTargetsAtom,
+    () => void register(),
+    {
+      immediate: true,
+    },
+  );
+  const tokenSubscription = Notifications.addPushTokenListener(() => {
+    token = null;
+    void register();
   });
+  // Permission granted in Settings, or a failed attempt, gets another go when the app comes back.
+  const appStateSubscription = AppState.addEventListener("change", (state) => {
+    if (state === "active") void register();
+  });
+
+  return () => {
+    unsubscribeTargets();
+    tokenSubscription.remove();
+    appStateSubscription.remove();
+  };
 }

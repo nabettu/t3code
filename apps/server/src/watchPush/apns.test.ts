@@ -1,9 +1,12 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Generates a real P-256 key to verify the APNs token signature.
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
+import * as NodeOS from "node:os";
+import * as NodePath from "node:path";
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { makeApnsJwt } from "./apns.ts";
+import { makeApnsJwt, readWatchPushDevices, writeWatchPushDevices } from "./apns.ts";
 
 describe("makeApnsJwt", () => {
   it("signs an ES256 token APNs can verify with the key's public half", () => {
@@ -34,5 +37,31 @@ describe("makeApnsJwt", () => {
         Buffer.from(signature, "base64url"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("watch push device list", () => {
+  it("reads a missing list as empty and refuses a corrupt one instead of overwriting it", async () => {
+    await using directory = {
+      path: NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-watch-push-")),
+      async [Symbol.asyncDispose]() {
+        NodeFS.rmSync(this.path, { recursive: true, force: true });
+      },
+    };
+    const file = NodePath.join(directory.path, "devices.json");
+    expect(await readWatchPushDevices(file)).toEqual([]);
+
+    const device = {
+      token: "ab".repeat(32),
+      apsEnvironment: "sandbox" as const,
+      actionBaseUrl: "https://mac.example.test",
+      sessionId: "session-1",
+      updatedAt: "2026-11-21T00:00:00.000Z",
+    };
+    await writeWatchPushDevices(file, [device], "a");
+    expect(await readWatchPushDevices(file)).toEqual([device]);
+
+    NodeFS.writeFileSync(file, "{not json");
+    await expect(readWatchPushDevices(file)).rejects.toThrow();
   });
 });

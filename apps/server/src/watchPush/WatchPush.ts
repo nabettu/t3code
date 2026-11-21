@@ -1,4 +1,9 @@
+// @effect-diagnostics nodeBuiltinImport:off -- Only joins the device list path under the state directory.
+import * as NodePath from "node:path";
+
 import {
+  AuthOrchestrationOperateScope,
+  type AuthSessionId,
   CommandId,
   type ThreadId,
   type RunId,
@@ -12,8 +17,11 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
+import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import type { AgentAwarenessThread } from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
@@ -33,6 +41,7 @@ import {
   watchPushDirectory,
   writeWatchPushDevices,
   type WatchPushApnsConfig,
+  type WatchPushDevice,
 } from "./apns.ts";
 import {
   buildWatchPushApnsPayload,
@@ -51,7 +60,7 @@ interface ActionTarget extends WatchPushActionTarget {
 
 const ACTION_TTL_MS = 24 * 60 * 60 * 1000;
 // A run can finish and another start right away; only a completion that holds gets a push.
-const COMPLETION_CONFIRM_DELAY = "5 seconds";
+const COMPLETION_CONFIRM_MS = 5_000;
 const JWT_REFRESH_SECONDS = 50 * 60;
 
 export class WatchPush extends Context.Service<
@@ -59,6 +68,7 @@ export class WatchPush extends Context.Service<
   {
     readonly registerDevice: (
       input: WatchPushRegisterDeviceInput,
+      sessionId: AuthSessionId,
     ) => Effect.Effect<Record<string, never>, WatchPushError>;
     readonly runAction: (
       token: string,
@@ -86,13 +96,21 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const projects = yield* ProjectService.ProjectService;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
+  const serverConfig = yield* ServerConfig.ServerConfig;
+  const auth = yield* EnvironmentAuth.EnvironmentAuth;
   const random = yield* SecureRandom.SecureRandom;
   const scope = yield* Effect.scope;
-  const directory = watchPushDirectory();
+  const keyDirectory = watchPushDirectory();
+  // Devices belong to this server's state, so a dev server beside the desktop one never reaches them.
+  const devicesFile = NodePath.join(serverConfig.stateDir, "watch-push-devices.json");
+  const devicesLock = yield* Semaphore.make(1);
 
   const targets = new Map<string, ActionTarget>();
   const pushedByThread = new Map<ThreadId, string>();
-  const heldCompletions = new Map<ThreadId, RunId | null>();
+  const heldCompletions = new Map<
+    ThreadId,
+    { readonly runId: RunId | null; readonly readyAtMs: number }
+  >();
   let jwtCache: { readonly keyId: string; readonly jwt: string; readonly issuedAt: number } | null =
     null;
 
@@ -113,14 +131,53 @@ const make = Effect.gen(function* () {
     return jwtCache.jwt;
   };
 
-  const newToken = random
-    .randomBytes(24)
-    .pipe(Effect.map((bytes) => Buffer.from(bytes).toString("base64url")));
+  const randomText = (size: number) =>
+    random.randomBytes(size).pipe(Effect.map((bytes) => Buffer.from(bytes).toString("base64url")));
 
-  const readThreadState = Effect.fnUntraced(function* (threadId: ThreadId) {
+  const readDevices = Effect.tryPromise({
+    try: () => readWatchPushDevices(devicesFile),
+    catch: () => failure("The watch notification device list is unreadable."),
+  });
+
+  const updateDevices = (update: (devices: Array<WatchPushDevice>) => Array<WatchPushDevice>) =>
+    devicesLock.withPermits(1)(
+      Effect.gen(function* () {
+        const devices = yield* readDevices;
+        const suffix = yield* randomText(6);
+        yield* Effect.tryPromise({
+          try: () => writeWatchPushDevices(devicesFile, update(devices), suffix),
+          catch: () => failure("Couldn't save the device for watch notifications."),
+        });
+      }),
+    );
+
+  // A device stops getting pushes once the session that registered it is revoked or loses operate access.
+  const liveDevices = Effect.gen(function* () {
+    const devices = yield* readDevices;
+    if (devices.length === 0) return devices;
+    const sessions = yield* auth
+      .listSessions()
+      .pipe(Effect.mapError(() => failure("Couldn't read sessions.")));
+    const allowed = new Set(
+      sessions
+        .filter((session) => session.scopes.includes(AuthOrchestrationOperateScope))
+        .map((session) => String(session.sessionId)),
+    );
+    return devices.filter((device) => allowed.has(device.sessionId));
+  });
+
+  const readThreadState = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    options: { readonly ignoreSettled: boolean },
+  ) {
     const snapshot = yield* threads.getAgentAwarenessSnapshot(threadId);
-    const thread = snapshot.threads.find((candidate) => candidate.id === threadId) ?? null;
-    if (thread === null || thread.archivedAt !== null) return null;
+    const found = snapshot.threads.find((candidate) => candidate.id === threadId) ?? null;
+    if (found === null || found.archivedAt !== null) return null;
+    // A completion settled while it was held still counts, as the relay treats it.
+    const thread =
+      options.ignoreSettled && found.settledOverride === "settled"
+        ? { ...found, settledOverride: null }
+        : found;
     const project = yield* projects.getById(thread.projectId);
     const resolved = resolveAgentAwarenessRelayPublishSnapshot({
       environmentId: yield* serverEnvironment.getEnvironmentId,
@@ -156,6 +213,7 @@ const make = Effect.gen(function* () {
     return last?.text ?? null;
   });
 
+  /** True once at least one phone took the push, so a failed attempt is tried again later. */
   const deliver = Effect.fn("WatchPush.deliver")(function* (input: {
     readonly threadId: ThreadId;
     readonly phase: WatchPushPhase;
@@ -167,10 +225,10 @@ const make = Effect.gen(function* () {
       readonly environmentId: string;
     };
   }) {
-    const config = yield* Effect.promise(() => readWatchPushConfig(directory));
-    if (config === null) return;
-    const devices = yield* Effect.promise(() => readWatchPushDevices(directory));
-    if (devices.length === 0) return;
+    const config = yield* Effect.promise(() => readWatchPushConfig(keyDirectory));
+    if (config === null) return false;
+    const devices = yield* liveDevices;
+    if (devices.length === 0) return false;
     const requestId = input.thread.pendingRuntimeRequest?.id ?? null;
     const content = buildWatchPushContent({
       phase: input.phase,
@@ -194,7 +252,7 @@ const make = Effect.gen(function* () {
     for (const [token, target] of targets) {
       if (target.expiresAtMs <= now) targets.delete(token);
     }
-    const token = content.target === null ? null : yield* newToken;
+    const token = content.target === null ? null : yield* randomText(24);
     if (content.target !== null && token !== null) {
       targets.set(token, {
         threadId: input.threadId,
@@ -204,7 +262,8 @@ const make = Effect.gen(function* () {
       });
     }
     const jwt = jwtFor(config, Math.floor(now / 1000));
-    const dead: Array<string> = [];
+    const dead = new Set<string>();
+    let delivered = false;
     for (const device of devices) {
       const payload = buildWatchPushApnsPayload({
         content,
@@ -218,43 +277,38 @@ const make = Effect.gen(function* () {
       });
       const result = yield* Effect.tryPromise({
         try: () =>
-          sendApnsAlert({
-            config,
-            jwt,
-            device,
-            payload,
-            collapseId: `${input.threadId}`.slice(0, 64),
-          }),
+          sendApnsAlert({ config, jwt, device, payload, collapseId: input.threadId.slice(0, 64) }),
         catch: () => failure("APNs did not answer."),
       }).pipe(Effect.option);
       if (Option.isNone(result)) {
         yield* Effect.logWarning("watch push delivery failed", { threadId: input.threadId });
         continue;
       }
-      if (result.value.status !== 200) {
-        yield* Effect.logWarning("watch push rejected by APNs", {
-          threadId: input.threadId,
-          status: result.value.status,
-          reason: result.value.reason,
-        });
-        if (isDeadApnsToken(result.value)) dead.push(device.token);
+      if (result.value.status === 200) {
+        delivered = true;
+        continue;
       }
+      yield* Effect.logWarning("watch push rejected by APNs", {
+        threadId: input.threadId,
+        status: result.value.status,
+        reason: result.value.reason,
+      });
+      if (isDeadApnsToken(result.value)) dead.add(device.token);
     }
-    if (dead.length > 0) {
-      yield* Effect.promise(() =>
-        writeWatchPushDevices(
-          directory,
-          devices.filter((device) => !dead.includes(device.token)),
-        ),
-      );
+    if (dead.size > 0) {
+      yield* updateDevices((current) => current.filter((device) => !dead.has(device.token)));
     }
+    return delivered;
   });
 
   // Set once the worker exists; a held completion re-enters the worker after its delay.
   let enqueue: (threadId: ThreadId) => Effect.Effect<void> = () => Effect.void;
 
   const evaluate = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const current = yield* readThreadState(threadId).pipe(Effect.orElseSucceed(() => null));
+    const held = heldCompletions.get(threadId);
+    const current = yield* readThreadState(threadId, { ignoreSettled: held !== undefined }).pipe(
+      Effect.orElseSucceed(() => null),
+    );
     if (current === null) {
       heldCompletions.delete(threadId);
       return;
@@ -262,26 +316,30 @@ const make = Effect.gen(function* () {
     const identity = pushIdentity(current.phase, current.thread);
     if (pushedByThread.get(threadId) === identity) return;
     if (current.phase === "completed") {
-      const held = heldCompletions.get(threadId);
-      if (held === undefined || held !== current.thread.latestRunId) {
-        heldCompletions.set(threadId, current.thread.latestRunId);
+      const now = yield* nowMs;
+      if (held === undefined || held.runId !== current.thread.latestRunId) {
+        heldCompletions.set(threadId, {
+          runId: current.thread.latestRunId,
+          readyAtMs: now + COMPLETION_CONFIRM_MS,
+        });
         yield* Effect.forkIn(
-          Effect.sleep(COMPLETION_CONFIRM_DELAY).pipe(
+          Effect.sleep(COMPLETION_CONFIRM_MS).pipe(
             Effect.andThen(Effect.suspend(() => enqueue(threadId))),
           ),
           scope,
         );
         return;
       }
+      if (now < held.readyAtMs) return;
     }
     heldCompletions.delete(threadId);
-    pushedByThread.set(threadId, identity);
-    yield* deliver({
+    const delivered = yield* deliver({
       threadId,
       phase: current.phase,
       thread: current.thread,
       state: current.state,
     });
+    if (delivered) pushedByThread.set(threadId, identity);
   });
 
   const worker = yield* makeAgentAwarenessPublishWorker((threadId: ThreadId) =>
@@ -291,7 +349,6 @@ const make = Effect.gen(function* () {
       ),
     ),
   );
-
   enqueue = worker.enqueue;
 
   yield* forkParked(
@@ -302,18 +359,13 @@ const make = Effect.gen(function* () {
 
   const registerDevice = Effect.fn("WatchPush.registerDevice")(function* (
     input: WatchPushRegisterDeviceInput,
+    sessionId: AuthSessionId,
   ) {
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
-    yield* Effect.tryPromise({
-      try: async () => {
-        const devices = await readWatchPushDevices(directory);
-        await writeWatchPushDevices(directory, [
-          ...devices.filter((device) => device.token !== input.token),
-          { ...input, updatedAt },
-        ]);
-      },
-      catch: () => failure("Couldn't save the device for watch notifications."),
-    });
+    yield* updateDevices((devices) => [
+      ...devices.filter((device) => device.token !== input.token),
+      { ...input, sessionId, updatedAt },
+    ]);
     return {};
   });
 
@@ -324,14 +376,20 @@ const make = Effect.gen(function* () {
     action: WatchPushAction,
   ) {
     const target = targets.get(token);
+    // Claimed before dispatch, so a second press (or the other phone) can't also answer.
+    targets.delete(token);
     if (target === undefined || target.expiresAtMs <= (yield* nowMs)) {
-      targets.delete(token);
-      return yield* failure("This notification has expired.");
+      return yield* failure("This notification has expired or was already answered.");
     }
     const command = watchPushActionCommand(target, action, CommandId.make(`watch-push:${token}`));
-    if (typeof command === "string") return yield* failure(command);
-    yield* threads.dispatch(command).pipe(Effect.mapError(dispatchFailure));
-    targets.delete(token);
+    if (typeof command === "string") {
+      targets.set(token, target);
+      return yield* failure(command);
+    }
+    yield* threads.dispatch(command).pipe(
+      Effect.mapError(dispatchFailure),
+      Effect.tapError(() => Effect.sync(() => targets.set(token, target))),
+    );
   });
 
   return WatchPush.of({ registerDevice, runAction });

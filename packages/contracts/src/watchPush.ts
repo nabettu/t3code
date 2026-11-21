@@ -8,6 +8,10 @@ export const WatchPushRegisterDeviceInput = Schema.Struct({
   apsEnvironment: Schema.Literals(["sandbox", "production"]),
   /** Where the phone reaches this server; notification buttons post their action here. */
   actionBaseUrl: TrimmedNonEmptyString.check(Schema.isPattern(/^https?:\/\/[^/]/)),
+  /** The APNs topic; dev, preview and release builds each have their own. */
+  bundleId: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isPattern(/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/)),
+  ),
 });
 export type WatchPushRegisterDeviceInput = typeof WatchPushRegisterDeviceInput.Type;
 

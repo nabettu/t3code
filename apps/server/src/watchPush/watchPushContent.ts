@@ -92,6 +92,10 @@ export function buildWatchPushContent(input: {
   }
 }
 
+// APNs refuses alerts over 4 KiB; leave room for the headers APNs counts into it.
+const MAX_PAYLOAD_BYTES = 3800;
+const MAX_TITLE_LENGTH = 120;
+
 export function buildWatchPushApnsPayload(input: {
   readonly content: WatchPushContent;
   readonly environmentId: string;
@@ -99,12 +103,12 @@ export function buildWatchPushApnsPayload(input: {
   readonly deepLink: string;
   readonly actionUrl: string | null;
 }) {
-  return {
+  const make = (body: string) => ({
     aps: {
       alert: {
-        title: input.content.title,
-        subtitle: input.content.subtitle,
-        body: input.content.body,
+        title: clip(input.content.title, MAX_TITLE_LENGTH),
+        subtitle: clip(input.content.subtitle, MAX_TITLE_LENGTH),
+        body,
       },
       sound: "default",
       "thread-id": `${input.environmentId}/${input.threadId}`,
@@ -117,7 +121,15 @@ export function buildWatchPushApnsPayload(input: {
       deepLink: input.deepLink,
     },
     ...(input.actionUrl === null ? {} : { t3WatchActionUrl: input.actionUrl }),
-  };
+  });
+  let body = input.content.body;
+  let payload = make(body);
+  // Trim from the reply's end; the numbered choices sit at the end, so keep them when they fit.
+  while (Buffer.byteLength(JSON.stringify(payload)) > MAX_PAYLOAD_BYTES && body.length > 1) {
+    body = clip(body, Math.floor(Array.from(body).length * 0.8));
+    payload = make(body);
+  }
+  return payload;
 }
 
 /** A notification button the phone posts back: approve or deny the request, send a next prompt, or reply. */

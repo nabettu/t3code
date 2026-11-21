@@ -1,7 +1,11 @@
 import { CommandId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildWatchPushContent, watchPushActionCommand } from "./watchPushContent.ts";
+import {
+  buildWatchPushApnsPayload,
+  buildWatchPushContent,
+  watchPushActionCommand,
+} from "./watchPushContent.ts";
 
 const base = {
   threadTitle: "Fix login",
@@ -51,12 +55,36 @@ describe("buildWatchPushContent", () => {
   });
 });
 
+describe("buildWatchPushApnsPayload", () => {
+  it("stays under the APNs size limit however long the reply, title and project are", () => {
+    const long = "あ".repeat(3000);
+    const payload = buildWatchPushApnsPayload({
+      content: {
+        title: long,
+        subtitle: long,
+        body: long,
+        category: "t3-watch-next-0",
+        target: null,
+      },
+      environmentId: "environment",
+      threadId: "thread",
+      deepLink: "/threads/environment/thread",
+      actionUrl: `https://example.test/api/watch-push/action/${"x".repeat(32)}`,
+    });
+    expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(3800);
+    expect(payload.aps.alert.body.length).toBeGreaterThan(100);
+  });
+});
+
 describe("watchPushActionCommand", () => {
   const threadId = ThreadId.make("thread-1");
   const commandId = CommandId.make("watch-push:token");
   const requestId = RuntimeRequestId.make("request-1");
 
   it("answers the pending request for approve and deny, and refuses without one", () => {
+    expect(
+      watchPushActionCommand({ threadId, requestId, prompts: [] }, { type: "approve" }, commandId),
+    ).toMatchObject({ type: "runtime-request.respond", requestId, decision: "accept" });
     expect(
       watchPushActionCommand({ threadId, requestId, prompts: [] }, { type: "deny" }, commandId),
     ).toMatchObject({ type: "runtime-request.respond", requestId, decision: "decline" });

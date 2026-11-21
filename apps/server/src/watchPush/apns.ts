@@ -7,7 +7,7 @@ import * as NodePath from "node:path";
 
 import type { WatchPushRegisterDeviceInput } from "@t3tools/contracts";
 
-/** Holds config.json (teamId, keyId, bundleId, keyPath) and the devices.json this server writes. */
+/** Holds config.json (teamId, keyId, bundleId, keyPath): the APNs key, shared by every server here. */
 export function watchPushDirectory(env: NodeJS.ProcessEnv = process.env): string {
   return env.T3CODE_WATCH_PUSH_DIR ?? NodePath.join(NodeOS.homedir(), ".config", "t3-watch-push");
 }
@@ -19,7 +19,9 @@ export interface WatchPushApnsConfig {
   readonly privateKey: string;
 }
 
+/** A phone registered on this server, kept only while the session that registered it lives. */
 export interface WatchPushDevice extends WatchPushRegisterDeviceInput {
+  readonly sessionId: string;
   readonly updatedAt: string;
 }
 
@@ -48,33 +50,38 @@ export async function readWatchPushConfig(directory: string): Promise<WatchPushA
   };
 }
 
-export async function readWatchPushDevices(directory: string): Promise<Array<WatchPushDevice>> {
+const isDevice = (device: unknown): device is WatchPushDevice => {
+  if (typeof device !== "object" || device === null) return false;
+  const value = device as Record<string, unknown>;
+  return (
+    isText(value.token) &&
+    isText(value.sessionId) &&
+    isText(value.actionBaseUrl) &&
+    (value.apsEnvironment === "sandbox" || value.apsEnvironment === "production")
+  );
+};
+
+/** A missing file is no devices; an unreadable one throws so a save can't wipe it. */
+export async function readWatchPushDevices(file: string): Promise<Array<WatchPushDevice>> {
+  let text: string;
   try {
-    const parsed: unknown = JSON.parse(
-      await NodeFSP.readFile(NodePath.join(directory, "devices.json"), "utf8"),
-    );
-    return Array.isArray(parsed)
-      ? parsed.filter(
-          (device): device is WatchPushDevice =>
-            typeof device === "object" &&
-            device !== null &&
-            isText(device.token) &&
-            (device.apsEnvironment === "sandbox" || device.apsEnvironment === "production") &&
-            isText(device.actionBaseUrl),
-        )
-      : [];
-  } catch {
-    return [];
+    text = await NodeFSP.readFile(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
   }
+  const parsed: unknown = JSON.parse(text);
+  if (!Array.isArray(parsed)) throw new Error(`${file} is not a device list.`);
+  return parsed.filter(isDevice);
 }
 
 export async function writeWatchPushDevices(
-  directory: string,
+  file: string,
   devices: ReadonlyArray<WatchPushDevice>,
+  temporarySuffix: string,
 ): Promise<void> {
-  await NodeFSP.mkdir(directory, { recursive: true, mode: 0o700 });
-  const file = NodePath.join(directory, "devices.json");
-  const temporary = `${file}.${process.pid}.tmp`;
+  await NodeFSP.mkdir(NodePath.dirname(file), { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${temporarySuffix}.tmp`;
   await NodeFSP.writeFile(temporary, `${JSON.stringify(devices, null, 2)}\n`, { mode: 0o600 });
   await NodeFSP.rename(temporary, file);
 }
@@ -101,7 +108,7 @@ export interface ApnsResult {
 export function sendApnsAlert(input: {
   readonly config: WatchPushApnsConfig;
   readonly jwt: string;
-  readonly device: Pick<WatchPushDevice, "token" | "apsEnvironment">;
+  readonly device: Pick<WatchPushDevice, "token" | "apsEnvironment" | "bundleId">;
   readonly payload: unknown;
   readonly collapseId?: string;
 }): Promise<ApnsResult> {
@@ -116,7 +123,7 @@ export function sendApnsAlert(input: {
       ":method": "POST",
       ":path": `/3/device/${input.device.token}`,
       authorization: `bearer ${input.jwt}`,
-      "apns-topic": input.config.bundleId,
+      "apns-topic": input.device.bundleId ?? input.config.bundleId,
       "apns-push-type": "alert",
       "apns-priority": "10",
       ...(input.collapseId === undefined ? {} : { "apns-collapse-id": input.collapseId }),
