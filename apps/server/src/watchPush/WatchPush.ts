@@ -56,6 +56,8 @@ export const WATCH_PUSH_ACTION_ROUTE_PREFIX = "/api/watch-push/action";
 
 interface ActionTarget extends WatchPushActionTarget {
   readonly expiresAtMs: number;
+  /** The session of the one device this token was sent to; the press only counts while it lives. */
+  readonly sessionId: string;
 }
 
 const ACTION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -148,21 +150,26 @@ const make = Effect.gen(function* () {
           try: () => writeWatchPushDevices(devicesFile, update(devices), suffix),
           catch: () => failure("Couldn't save the device for watch notifications."),
         });
-      }),
+      }).pipe(Effect.uninterruptible),
     );
+
+  const operateSessionIds = auth.listSessions().pipe(
+    Effect.mapError(() => failure("Couldn't read sessions.")),
+    Effect.map(
+      (sessions) =>
+        new Set(
+          sessions
+            .filter((session) => session.scopes.includes(AuthOrchestrationOperateScope))
+            .map((session) => String(session.sessionId)),
+        ),
+    ),
+  );
 
   // A device stops getting pushes once the session that registered it is revoked or loses operate access.
   const liveDevices = Effect.gen(function* () {
     const devices = yield* readDevices;
     if (devices.length === 0) return devices;
-    const sessions = yield* auth
-      .listSessions()
-      .pipe(Effect.mapError(() => failure("Couldn't read sessions.")));
-    const allowed = new Set(
-      sessions
-        .filter((session) => session.scopes.includes(AuthOrchestrationOperateScope))
-        .map((session) => String(session.sessionId)),
-    );
+    const allowed = yield* operateSessionIds;
     return devices.filter((device) => allowed.has(device.sessionId));
   });
 
@@ -252,19 +259,21 @@ const make = Effect.gen(function* () {
     for (const [token, target] of targets) {
       if (target.expiresAtMs <= now) targets.delete(token);
     }
-    const token = content.target === null ? null : yield* randomText(24);
-    if (content.target !== null && token !== null) {
-      targets.set(token, {
-        threadId: input.threadId,
-        requestId: content.target.requestId,
-        prompts: content.target.prompts,
-        expiresAtMs: now + ACTION_TTL_MS,
-      });
-    }
     const jwt = jwtFor(config, Math.floor(now / 1000));
     const dead = new Set<string>();
     let delivered = false;
     for (const device of devices) {
+      // One token per device, so each press is checked against that device's own session.
+      const token = content.target === null ? null : yield* randomText(24);
+      if (content.target !== null && token !== null) {
+        targets.set(token, {
+          threadId: input.threadId,
+          requestId: content.target.requestId,
+          prompts: content.target.prompts,
+          expiresAtMs: now + ACTION_TTL_MS,
+          sessionId: device.sessionId,
+        });
+      }
       const payload = buildWatchPushApnsPayload({
         content,
         environmentId: input.state.environmentId,
@@ -376,19 +385,23 @@ const make = Effect.gen(function* () {
     action: WatchPushAction,
   ) {
     const target = targets.get(token);
-    // Claimed before dispatch, so a second press (or the other phone) can't also answer.
-    targets.delete(token);
     if (target === undefined || target.expiresAtMs <= (yield* nowMs)) {
+      targets.delete(token);
       return yield* failure("This notification has expired or was already answered.");
     }
-    const command = watchPushActionCommand(target, action, CommandId.make(`watch-push:${token}`));
-    if (typeof command === "string") {
-      targets.set(token, target);
-      return yield* failure(command);
+    if (!(yield* operateSessionIds).has(target.sessionId)) {
+      targets.delete(token);
+      return yield* failure("This phone's connection was revoked.");
     }
-    yield* threads.dispatch(command).pipe(
-      Effect.mapError(dispatchFailure),
-      Effect.tapError(() => Effect.sync(() => targets.set(token, target))),
+    const command = watchPushActionCommand(target, action, CommandId.make(`watch-push:${token}`));
+    if (typeof command === "string") return yield* failure(command);
+    // Claimed before dispatch, so a second press can't also answer; given back if it doesn't land.
+    yield* Effect.uninterruptible(
+      Effect.sync(() => targets.delete(token)).pipe(
+        Effect.andThen(threads.dispatch(command)),
+        Effect.mapError(dispatchFailure),
+        Effect.tapError(() => Effect.sync(() => targets.set(token, target))),
+      ),
     );
   });
 

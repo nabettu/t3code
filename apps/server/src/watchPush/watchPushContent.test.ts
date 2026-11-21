@@ -31,7 +31,8 @@ describe("buildWatchPushContent", () => {
     expect(content).toEqual({
       title: "完了 · Fix login",
       subtitle: "app",
-      body: "Done.\n\n1. Open a PR\n2. Run tests",
+      body: "Done.",
+      choices: "1. Open a PR\n2. Run tests",
       category: "t3-watch-next-2",
       target: { requestId: null, prompts: ["Push and open a PR.", "Run the tests."] },
     });
@@ -63,16 +64,18 @@ describe("buildWatchPushApnsPayload", () => {
         title: long,
         subtitle: long,
         body: long,
-        category: "t3-watch-next-0",
+        choices: "1. Open a PR\n2. Run tests",
+        category: "t3-watch-next-2",
         target: null,
       },
       environmentId: "environment",
       threadId: "thread",
       deepLink: "/threads/environment/thread",
-      actionUrl: `https://example.test/api/watch-push/action/${"x".repeat(32)}`,
+      actionUrl: `https://${"h".repeat(500)}.test/api/watch-push/action/${"x".repeat(32)}`,
     });
     expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(3800);
     expect(payload.aps.alert.body.length).toBeGreaterThan(100);
+    expect(payload.aps.alert.body.endsWith("1. Open a PR\n2. Run tests")).toBe(true);
   });
 });
 

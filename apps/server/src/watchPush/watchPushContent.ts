@@ -21,6 +21,8 @@ export interface WatchPushContent {
   readonly title: string;
   readonly subtitle: string;
   readonly body: string;
+  /** The numbered choices; payload trimming shortens `body` and keeps these whole. */
+  readonly choices?: string;
   readonly category: string | null;
   /** What the buttons act on; null when the notification has none. */
   readonly target: {
@@ -80,11 +82,11 @@ export function buildWatchPushContent(input: {
       const { markdown, actions } = splitNextActions(input.assistantText ?? "");
       const reply = clip(markdown, MAX_BODY_LENGTH);
       const choices = actions.map((action, index) => `${index + 1}. ${action.label}`).join("\n");
-      const body = [reply, choices].filter((part) => part !== "").join("\n\n");
       return {
         title,
         subtitle,
-        body: body === "" ? "作業が終わりました" : body,
+        body: reply === "" && choices === "" ? "作業が終わりました" : reply,
+        ...(choices === "" ? {} : { choices }),
         category: watchPushNextCategory(actions.length),
         target: { requestId: null, prompts: actions.map((action) => action.prompt) },
       };
@@ -108,7 +110,7 @@ export function buildWatchPushApnsPayload(input: {
       alert: {
         title: clip(input.content.title, MAX_TITLE_LENGTH),
         subtitle: clip(input.content.subtitle, MAX_TITLE_LENGTH),
-        body,
+        body: [body, input.content.choices ?? ""].filter((part) => part !== "").join("\n\n"),
       },
       sound: "default",
       "thread-id": `${input.environmentId}/${input.threadId}`,
@@ -124,7 +126,6 @@ export function buildWatchPushApnsPayload(input: {
   });
   let body = input.content.body;
   let payload = make(body);
-  // Trim from the reply's end; the numbered choices sit at the end, so keep them when they fit.
   while (Buffer.byteLength(JSON.stringify(payload)) > MAX_PAYLOAD_BYTES && body.length > 1) {
     body = clip(body, Math.floor(Array.from(body).length * 0.8));
     payload = make(body);

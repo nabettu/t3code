@@ -53,6 +53,12 @@ export function installWatchPushRegistration(): () => void {
 
   const register = async () => {
     const targets = appAtomRegistry.get(connectedTargetsAtom);
+    // A reconnect may bring a new session, so a server that dropped off is registered afresh.
+    for (const environmentId of registered.keys()) {
+      if (!targets.some((target) => target.environmentId === environmentId)) {
+        registered.delete(environmentId);
+      }
+    }
     if (targets.length === 0) return;
     token ??= readDeviceToken().catch(() => null);
     const deviceToken = await token;
@@ -90,8 +96,10 @@ export function installWatchPushRegistration(): () => void {
       immediate: true,
     },
   );
-  const tokenSubscription = Notifications.addPushTokenListener(() => {
-    token = null;
+  // Fetching the token fires this listener too, so take the token it carries instead of refetching.
+  const tokenSubscription = Notifications.addPushTokenListener((event) => {
+    if (typeof event.data !== "string") return;
+    token = Promise.resolve(event.data);
     void register();
   });
   // Permission granted in Settings, or a failed attempt, gets another go when the app comes back.
