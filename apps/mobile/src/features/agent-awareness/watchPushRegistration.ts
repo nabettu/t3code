@@ -1,6 +1,7 @@
 import { createEnvironmentRpcCommand } from "@t3tools/client-runtime/state/runtime";
 import { WS_METHODS, type EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
+import * as Application from "expo-application";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { AppState, Platform } from "react-native";
@@ -32,7 +33,13 @@ const connectedTargetsAtom = Atom.make((get) =>
 ).pipe(Atom.withLabel("mobile:watch-push:connected-targets"));
 
 async function readDeviceToken(): Promise<string | null> {
-  const permissions = await Notifications.getPermissionsAsync();
+  let permissions = await Notifications.getPermissionsAsync();
+  // Nothing else asks unless relay notifications are switched on, so ask once here.
+  if (!permissions.granted && permissions.canAskAgain) {
+    permissions = await Notifications.requestPermissionsAsync({
+      ios: { allowAlert: true, allowBadge: true, allowSound: true },
+    });
+  }
   if (!permissions.granted) return null;
   const token = await Notifications.getDevicePushTokenAsync();
   return typeof token.data === "string" ? token.data : null;
@@ -45,7 +52,16 @@ async function readDeviceToken(): Promise<string | null> {
  */
 export function installWatchPushRegistration(): () => void {
   if (Platform.OS !== "ios") return () => {};
-  const apsEnvironment = resolveApsEnvironment(Constants.expoConfig?.extra?.appVariant);
+  // A development-signed release build still talks to the APNs sandbox, so trust the entitlement.
+  const apsEnvironment = Application.getIosPushNotificationServiceEnvironmentAsync()
+    .then((environment) =>
+      environment === "development"
+        ? ("sandbox" as const)
+        : environment === "production"
+          ? ("production" as const)
+          : resolveApsEnvironment(Constants.expoConfig?.extra?.appVariant),
+    )
+    .catch(() => resolveApsEnvironment(Constants.expoConfig?.extra?.appVariant));
   const bundleId = Constants.expoConfig?.ios?.bundleIdentifier;
   // What each server last accepted (or is being sent), so an A→B→A route change re-sends A.
   const registered = new Map<EnvironmentId, string>();
@@ -62,6 +78,7 @@ export function installWatchPushRegistration(): () => void {
     if (targets.length === 0) return;
     token ??= readDeviceToken().catch(() => null);
     const deviceToken = await token;
+    const environment = await apsEnvironment;
     if (deviceToken === null) {
       token = null;
       return;
@@ -76,7 +93,7 @@ export function installWatchPushRegistration(): () => void {
           environmentId: target.environmentId,
           input: {
             token: deviceToken,
-            apsEnvironment,
+            apsEnvironment: environment,
             actionBaseUrl: target.httpBaseUrl,
             ...(bundleId ? { bundleId } : {}),
           },
