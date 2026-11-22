@@ -33,6 +33,7 @@ describe("buildWatchPushContent", () => {
       subtitle: "app",
       body: "Done.",
       choices: "1. Open a PR\n2. Run tests",
+      choiceLabels: ["Open a PR", "Run tests"],
       category: "t3-watch-next-2",
       target: { requestId: null, prompts: ["Push and open a PR.", "Run the tests."] },
     });
@@ -65,6 +66,7 @@ describe("buildWatchPushApnsPayload", () => {
         subtitle: long,
         body: long,
         choices: "1. Open a PR\n2. Run tests",
+        choiceLabels: ["Open a PR", "い".repeat(100)],
         category: "t3-watch-next-2",
         target: null,
       },
@@ -76,6 +78,21 @@ describe("buildWatchPushApnsPayload", () => {
     expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(3800);
     expect(payload.aps.alert.body.length).toBeGreaterThan(100);
     expect(payload.aps.alert.body.startsWith("1. Open a PR\n2. Run tests\n\n")).toBe(true);
+    // The phone's notification extension turns these into button titles.
+    expect(payload.aps["mutable-content"]).toBe(1);
+    expect(payload.t3WatchChoices).toEqual(["Open a PR", `${"い".repeat(39)}…`]);
+  });
+
+  it("leaves the extension out when there are no choices", () => {
+    const payload = buildWatchPushApnsPayload({
+      content: { title: "t", subtitle: "s", body: "b", category: "t3-watch-next-0", target: null },
+      environmentId: "environment",
+      threadId: "thread",
+      deepLink: "/threads/environment/thread",
+      actionUrl: null,
+    });
+    expect(payload.aps).not.toHaveProperty("mutable-content");
+    expect(payload).not.toHaveProperty("t3WatchChoices");
   });
 });
 

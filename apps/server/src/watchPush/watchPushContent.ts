@@ -23,6 +23,8 @@ export interface WatchPushContent {
   readonly body: string;
   /** The numbered choices, shown above `body`; payload trimming shortens `body` and keeps these whole. */
   readonly choices?: string;
+  /** Labels the phone's notification extension puts on the numbered buttons. */
+  readonly choiceLabels?: ReadonlyArray<string>;
   readonly category: string | null;
   /** What the buttons act on; null when the notification has none. */
   readonly target: {
@@ -86,7 +88,7 @@ export function buildWatchPushContent(input: {
         title,
         subtitle,
         body: reply === "" && choices === "" ? "作業が終わりました" : reply,
-        ...(choices === "" ? {} : { choices }),
+        ...(choices === "" ? {} : { choices, choiceLabels: actions.map((action) => action.label) }),
         category: watchPushNextCategory(actions.length),
         target: { requestId: null, prompts: actions.map((action) => action.prompt) },
       };
@@ -97,6 +99,7 @@ export function buildWatchPushContent(input: {
 // APNs refuses alerts over 4 KiB; leave room for the headers APNs counts into it.
 const MAX_PAYLOAD_BYTES = 3800;
 const MAX_TITLE_LENGTH = 120;
+const MAX_CHOICE_LABEL_LENGTH = 40;
 
 export function buildWatchPushApnsPayload(input: {
   readonly content: WatchPushContent;
@@ -105,6 +108,9 @@ export function buildWatchPushApnsPayload(input: {
   readonly deepLink: string;
   readonly actionUrl: string | null;
 }) {
+  const choiceLabels = (input.content.choiceLabels ?? []).map((label) =>
+    clip(label, MAX_CHOICE_LABEL_LENGTH),
+  );
   const make = (body: string) => ({
     aps: {
       alert: {
@@ -116,6 +122,7 @@ export function buildWatchPushApnsPayload(input: {
       sound: "default",
       "thread-id": `${input.environmentId}/${input.threadId}`,
       ...(input.content.category === null ? {} : { category: input.content.category }),
+      ...(choiceLabels.length === 0 ? {} : { "mutable-content": 1 as const }),
     },
     // Expo iOS exposes userInfo.body as notification.content.data, which the app routes on.
     body: {
@@ -124,6 +131,7 @@ export function buildWatchPushApnsPayload(input: {
       deepLink: input.deepLink,
     },
     ...(input.actionUrl === null ? {} : { t3WatchActionUrl: input.actionUrl }),
+    ...(choiceLabels.length === 0 ? {} : { t3WatchChoices: choiceLabels }),
   });
   let body = input.content.body;
   let payload = make(body);
