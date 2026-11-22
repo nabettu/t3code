@@ -75,7 +75,7 @@ describe("buildWatchPushApnsPayload", () => {
     });
     expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(3800);
     expect(payload.aps.alert.body.length).toBeGreaterThan(100);
-    expect(payload.aps.alert.body.endsWith("1. Open a PR\n2. Run tests")).toBe(true);
+    expect(payload.aps.alert.body.startsWith("1. Open a PR\n2. Run tests\n\n")).toBe(true);
   });
 });
 

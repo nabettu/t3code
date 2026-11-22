@@ -21,7 +21,7 @@ export interface WatchPushContent {
   readonly title: string;
   readonly subtitle: string;
   readonly body: string;
-  /** The numbered choices; payload trimming shortens `body` and keeps these whole. */
+  /** The numbered choices, shown above `body`; payload trimming shortens `body` and keeps these whole. */
   readonly choices?: string;
   readonly category: string | null;
   /** What the buttons act on; null when the notification has none. */
@@ -110,7 +110,8 @@ export function buildWatchPushApnsPayload(input: {
       alert: {
         title: clip(input.content.title, MAX_TITLE_LENGTH),
         subtitle: clip(input.content.subtitle, MAX_TITLE_LENGTH),
-        body: [body, input.content.choices ?? ""].filter((part) => part !== "").join("\n\n"),
+        // The Watch shows buttons only as 1, 2, 3, so the choices lead where they are seen first.
+        body: [input.content.choices ?? "", body].filter((part) => part !== "").join("\n\n"),
       },
       sound: "default",
       "thread-id": `${input.environmentId}/${input.threadId}`,
