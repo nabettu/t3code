@@ -21,8 +21,6 @@ export interface WatchPushContent {
   readonly title: string;
   readonly subtitle: string;
   readonly body: string;
-  /** The numbered choices, shown above `body`; payload trimming shortens `body` and keeps these whole. */
-  readonly choices?: string;
   /** Labels the phone's notification extension puts on the numbered buttons. */
   readonly choiceLabels?: ReadonlyArray<string>;
   readonly category: string | null;
@@ -83,12 +81,11 @@ export function buildWatchPushContent(input: {
     case "completed": {
       const { markdown, actions } = splitNextActions(input.assistantText ?? "");
       const reply = clip(markdown, MAX_BODY_LENGTH);
-      const choices = actions.map((action, index) => `${index + 1}. ${action.label}`).join("\n");
       return {
         title,
         subtitle,
-        body: reply === "" && choices === "" ? "作業が終わりました" : reply,
-        ...(choices === "" ? {} : { choices, choiceLabels: actions.map((action) => action.label) }),
+        body: reply === "" ? "作業が終わりました" : reply,
+        ...(actions.length === 0 ? {} : { choiceLabels: actions.map((action) => action.label) }),
         category: watchPushNextCategory(actions.length),
         target: { requestId: null, prompts: actions.map((action) => action.prompt) },
       };
@@ -116,8 +113,7 @@ export function buildWatchPushApnsPayload(input: {
       alert: {
         title: clip(input.content.title, MAX_TITLE_LENGTH),
         subtitle: clip(input.content.subtitle, MAX_TITLE_LENGTH),
-        // The Watch shows buttons only as 1, 2, 3, so the choices lead where they are seen first.
-        body: [input.content.choices ?? "", body].filter((part) => part !== "").join("\n\n"),
+        body,
       },
       sound: "default",
       "thread-id": `${input.environmentId}/${input.threadId}`,
