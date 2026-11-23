@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildWatchPushApnsPayload,
   buildWatchPushContent,
+  readWatchPushText,
   watchPushActionCommand,
 } from "./watchPushContent.ts";
 
@@ -32,10 +33,53 @@ describe("buildWatchPushContent", () => {
       title: "完了 · Fix login",
       subtitle: "app",
       body: "Done.",
-      choiceLabels: ["Open a PR", "Run tests"],
+      buttonTitles: ["1. Open a PR", "2. Run tests"],
       category: "t3-watch-next-2",
       target: { requestId: null, prompts: ["Push and open a PR.", "Run the tests."] },
     });
+  });
+
+  it("takes its wording, lengths and button format from the text settings", () => {
+    const text = readWatchPushText({
+      phaseLabels: { completed: "Done" },
+      titleFormat: "{thread} ({phase})",
+      bodyMaxLength: 3,
+      listChoicesInBody: true,
+      buttonFormat: "{label}",
+      buttonMaxLength: 5,
+    });
+    const content = buildWatchPushContent(
+      {
+        ...base,
+        phase: "completed",
+        assistantText: 'Done.\n\n```next\n[{"label":"Open a PR","prompt":"p"}]\n```',
+      },
+      text,
+    );
+    expect(content).toMatchObject({
+      title: "Fix login (Done)",
+      body: "Do…",
+      choices: "1. Open a PR",
+      buttonTitles: ["Open…"],
+    });
+    expect(buildWatchPushContent({ ...base, phase: "failed" }, text).title).toBe(
+      "Fix login (失敗)",
+    );
+  });
+
+  it("falls back to the defaults for missing or malformed text settings", () => {
+    const defaults = readWatchPushText(undefined);
+    expect(
+      readWatchPushText({
+        phaseLabels: { completed: 1 },
+        titleFormat: "",
+        bodyMaxLength: -5,
+        listChoicesInBody: "yes",
+        buttonFormat: 3,
+        buttonMaxLength: "40",
+      }),
+    ).toEqual(defaults);
+    expect(defaults).toMatchObject({ listChoicesInBody: false, buttonFormat: "{n}. {label}" });
   });
 
   it("gives an approval its request and the approval buttons, and none without a request", () => {
@@ -64,7 +108,8 @@ describe("buildWatchPushApnsPayload", () => {
         title: long,
         subtitle: long,
         body: long,
-        choiceLabels: ["Open a PR", "い".repeat(100)],
+        choices: "1. Open a PR",
+        buttonTitles: ["1. Open a PR", "2. Run tests"],
         category: "t3-watch-next-2",
         target: null,
       },
@@ -75,11 +120,10 @@ describe("buildWatchPushApnsPayload", () => {
     });
     expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(3800);
     expect(payload.aps.alert.body.length).toBeGreaterThan(100);
-    // The buttons carry the labels, so the body is the reply alone.
-    expect(payload.aps.alert.body).not.toContain("1. Open a PR");
-    // The phone's notification extension turns these into button titles.
+    expect(payload.aps.alert.body.startsWith("1. Open a PR\n\n")).toBe(true);
+    // The phone's notification extension uses these as the button titles.
     expect(payload.aps["mutable-content"]).toBe(1);
-    expect(payload.t3WatchChoices).toEqual(["Open a PR", `${"い".repeat(39)}…`]);
+    expect(payload.t3WatchChoices).toEqual(["1. Open a PR", "2. Run tests"]);
   });
 
   it("leaves the extension out when there are no choices", () => {

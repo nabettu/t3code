@@ -10,7 +10,7 @@ private let choiceCategoriesKey = "t3WatchChoiceCategories"
 private let keptChoiceCategories = 32
 
 /// Gives each next-action push its own category, so the buttons read "1. Open a PR" instead of
-/// "1". Categories are fixed per id, and the labels only arrive with the push.
+/// "1". Categories are fixed per id, and the titles only arrive with the push.
 final class NotificationService: UNNotificationServiceExtension {
   private var contentHandler: ((UNNotificationContent) -> Void)?
   private var fallback: UNNotificationContent?
@@ -22,17 +22,17 @@ final class NotificationService: UNNotificationServiceExtension {
     self.contentHandler = contentHandler
     fallback = request.content
     guard
-      let labels = request.content.userInfo[choicesKey] as? [String], !labels.isEmpty,
+      let titles = request.content.userInfo[choicesKey] as? [String], !titles.isEmpty,
       let content = request.content.mutableCopy() as? UNMutableNotificationContent
     else { return finish(request.content) }
 
     let category = "\(choiceCategoryPrefix)\(request.identifier)"
     let options: UNNotificationActionOptions = [.authenticationRequired]
     let actions: [UNNotificationAction] =
-      labels.prefix(3).enumerated().map { index, label in
+      // The server formats the titles (config.json `text.buttonFormat`), so they are used as is.
+      titles.prefix(3).enumerated().map { index, title in
         UNNotificationAction(
-          identifier: "\(nextActionPrefix)\(index + 1)", title: "\(index + 1). \(label)",
-          options: options)
+          identifier: "\(nextActionPrefix)\(index + 1)", title: title, options: options)
       } + [
         UNTextInputNotificationAction(
           identifier: replyAction, title: "返信", options: options,

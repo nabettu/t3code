@@ -7,7 +7,7 @@ import * as NodePath from "node:path";
 
 import type { WatchPushRegisterDeviceInput } from "@t3tools/contracts";
 
-/** Holds config.json (teamId, keyId, bundleId, keyPath): the APNs key, shared by every server here. */
+/** Holds config.json (teamId, keyId, bundleId, keyPath, optional text): the APNs key, shared by every server here. */
 export function watchPushDirectory(env: NodeJS.ProcessEnv = process.env): string {
   return env.T3CODE_WATCH_PUSH_DIR ?? NodePath.join(NodeOS.homedir(), ".config", "t3-watch-push");
 }
@@ -17,6 +17,8 @@ export interface WatchPushApnsConfig {
   readonly keyId: string;
   readonly bundleId: string;
   readonly privateKey: string;
+  /** The raw `text` key; readWatchPushText fills in the defaults. */
+  readonly text?: unknown;
 }
 
 /** A phone registered on this server, kept only while the session that registered it lives. */
@@ -36,7 +38,7 @@ export async function readWatchPushConfig(directory: string): Promise<WatchPushA
     return null;
   }
   if (typeof raw !== "object" || raw === null) return null;
-  const { teamId, keyId, bundleId, keyPath } = raw as Record<string, unknown>;
+  const { teamId, keyId, bundleId, keyPath, text } = raw as Record<string, unknown>;
   if (!isText(teamId) || !isText(keyId) || !isText(bundleId) || !isText(keyPath)) return null;
   const resolvedKeyPath = NodePath.resolve(
     directory,
@@ -47,6 +49,7 @@ export async function readWatchPushConfig(directory: string): Promise<WatchPushA
     keyId,
     bundleId,
     privateKey: await NodeFSP.readFile(resolvedKeyPath, "utf8"),
+    text,
   };
 }
 

@@ -46,6 +46,7 @@ import {
 import {
   buildWatchPushApnsPayload,
   buildWatchPushContent,
+  readWatchPushText,
   watchPushActionCommand,
   type WatchPushAction,
   type WatchPushActionTarget,
@@ -239,24 +240,27 @@ const make = Effect.gen(function* () {
     const devices = yield* liveDevices;
     if (devices.length === 0) return false;
     const requestId = input.thread.pendingRuntimeRequest?.id ?? null;
-    const content = buildWatchPushContent({
-      phase: input.phase,
-      threadTitle: input.state.threadTitle,
-      projectTitle: input.state.projectTitle,
-      requestId: input.phase === "waiting_for_approval" ? requestId : null,
-      approvalText:
-        input.phase === "waiting_for_approval" && requestId !== null
-          ? yield* readApprovalText(input.threadId, requestId).pipe(
-              Effect.orElseSucceed(() => null),
-            )
-          : null,
-      assistantText:
-        input.phase === "completed" && input.thread.latestRunId !== null
-          ? yield* readAssistantText(input.threadId, input.thread.latestRunId).pipe(
-              Effect.orElseSucceed(() => null),
-            )
-          : null,
-    });
+    const content = buildWatchPushContent(
+      {
+        phase: input.phase,
+        threadTitle: input.state.threadTitle,
+        projectTitle: input.state.projectTitle,
+        requestId: input.phase === "waiting_for_approval" ? requestId : null,
+        approvalText:
+          input.phase === "waiting_for_approval" && requestId !== null
+            ? yield* readApprovalText(input.threadId, requestId).pipe(
+                Effect.orElseSucceed(() => null),
+              )
+            : null,
+        assistantText:
+          input.phase === "completed" && input.thread.latestRunId !== null
+            ? yield* readAssistantText(input.threadId, input.thread.latestRunId).pipe(
+                Effect.orElseSucceed(() => null),
+              )
+            : null,
+      },
+      readWatchPushText(config.text),
+    );
     const now = yield* nowMs;
     for (const [token, target] of targets) {
       if (target.expiresAtMs <= now) targets.delete(token);
