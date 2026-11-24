@@ -172,7 +172,9 @@ const recordStartupHeartbeat = Effect.gen(function* () {
     threadCount,
     projectCount,
   });
-  yield* analytics.recordOwners(yield* getServerOwners, "server");
+  if (yield* AnalyticsService.TelemetryEnabledConfig.pipe(Effect.orElseSucceed(() => false))) {
+    yield* analytics.recordOwners(yield* getServerOwners, "server");
+  }
 });
 
 const getAutoBootstrapThreadModelSelection = (): ModelSelection => ({
