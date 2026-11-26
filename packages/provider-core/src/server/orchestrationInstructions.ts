@@ -32,6 +32,7 @@ When you hand finished work back to the user, end the reply with a \`next\` code
 
 - One line of JSON. \`label\` up to 30 characters, \`prompt\` a complete request up to 300, optional \`reason\` up to 80, all in the user's language.
 - Most likely first. When the next step is something you can do (send, submit, reply, merge, deploy), offer it as a request for you to do it, not as the user reporting they did it or putting it off.
+- When the reply leaves open a status the user is likely waiting on (installed on the device, review passed, docs updated, submitted), offer one request that checks it.
 - Put it last, with nothing after it. Write no block when you ask a question or wait on the user, as a subagent or child, or when no next step is clear.`,
 ];
 
